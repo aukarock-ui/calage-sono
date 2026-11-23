@@ -192,3 +192,84 @@ def test_excursion_refonte_signale_xmax():
          "charge": "BR 385 L, accord 34 Hz"},
         *calc_systeme.charger(str(RACINE / "data" / "configs" / "ma-sono-refonte.yaml")))
     assert lignes["excursion_max_mm"] > 13.5 and any("EXCURSION" in a for a in lignes["alertes"])
+
+
+# --- Dimensionnement : exemples chiffrés de Boyce (2014) §11.9, §11.6.6, §11.6.7 ---
+def test_perte_cable_exemple_boyce():
+    # 2 x 20 m de 16 AWG (1,31 mm²) sur une bobine d'environ 6 ohms : Boyce trouve 0,73 dB (~15 % de puissance)
+    assert calc_systeme.perte_cable_db(20, 1.31, 6.0) == pytest.approx(0.73, abs=0.01)
+    assert calc_systeme.perte_cable_db(20, 4.0, 6.0) < 0.25          # section plus forte : perte plus faible
+    with pytest.raises(ValueError):
+        calc_systeme.perte_cable_db(20, 0, 6.0)
+
+
+def test_puissance_requise_exemple_boyce():
+    # 95 dB SPL à 20 m, sensibilité 97 dB, marge 6 dB, câble 0,73 dB -> Boyce : 1183 W (avec chute arrondie à 26 dB)
+    r = calc_systeme.puissance_requise(95, 20, 97, marge_db=6, perte_cable=0.73)
+    assert r["spl_requis_1m_db"] == pytest.approx(127.0, abs=0.05)
+    assert r["puissance_w"] == pytest.approx(1183, rel=0.01)
+    assert calc_systeme.puissance_requise(95, 20, 97, marge_db=9)["puissance_w"] == pytest.approx(
+        2 * calc_systeme.puissance_requise(95, 20, 97, marge_db=6)["puissance_w"], rel=0.01)  # +3 dB = x2
+
+
+def test_delai_renfort_exemple_boyce():
+    # 45 m de la façade, 10 m du renfort, c = 340 m/s, précédence 10 ms -> Boyce : 113 ms
+    t = (340 - 331.3) / 0.606
+    assert calc_systeme.delai_renfort_ms(45, 10, t, precedence_ms=10) == pytest.approx(113, abs=0.5)
+    # défaut : raccord aligné en phase, sans marge (McCarthy 2007 ch. 10 : la marge crée un peigne dès 50 Hz)
+    assert calc_systeme.delai_renfort_ms(45, 10, t) == pytest.approx(35 / 340 * 1000, abs=0.01)
+    with pytest.raises(ValueError):
+        calc_systeme.delai_renfort_ms(5, 10)
+    with pytest.raises(ValueError):
+        calc_systeme.delai_renfort_ms(45, 10, precedence_ms=-1)
+
+
+def test_distance_critique_exemple_boyce():
+    # 2500 m³, RT60 1 s, Q 10 -> Boyce : public « bien au-delà d'environ 18 m » = 2 Dc
+    assert 2 * calc_systeme.distance_critique_m(2500, 1.0, 10) == pytest.approx(18, abs=0.2)
+
+
+def test_cli_dimensionnement_sans_config(capsys):
+    sys.argv = ["calc_systeme.py", "--puissance", "95", "20", "97", "--cable", "20", "1.31", "6"]
+    calc_systeme.main()
+    out = capsys.readouterr().out
+    assert "0.73 dB" in out and "Seuils limiteurs : inchangés" in out and "Ne change jamais le plafond" in out
+
+
+# --- McCarthy 2007 : résolution d'analyse, moyenne spatiale, positions de micro ---
+def test_resolution_bandes_osm():
+    import osm_client
+    ft = [[f, 0.0, 1.0, 0.0, 1.0] for f in np.geomspace(20, 20000, 4000)]
+    b3, b24 = osm_client.tiers_octave(ft), osm_client.tiers_octave(ft, n=24)
+    assert len(b3) == 29 and b3[0]["f_hz"] == 24.8 and b3[-1]["f_hz"] == 16000.0   # mêmes tiers d'octave qu'avant
+    assert 230 <= len(b24) <= 242 and all(abs(b["mag_db"]) < 1e-6 for b in b24)
+    with pytest.raises(ValueError):
+        osm_client.tiers_octave(ft, n=5)
+
+
+def test_resolution_bandes_mesure_tf():
+    f = np.linspace(1, 24000, 48000); H = np.ones_like(f, dtype=complex); ir = np.zeros(256); ir[10] = 1
+    r3 = mesure_tf.resume(f, H, ir); r24 = mesure_tf.resume(f, H, ir, n=24)
+    assert len(r24["tiers_octave"]) > 7 * len(r3["tiers_octave"])
+
+
+def test_moyenne_en_puissance_resiste_aux_creux():
+    # Exemple de McCarthy (ch. 10) : pics de 5 / 5,5 / 6 dB et une annulation à -19,2 dB.
+    # Moyenne en dB : -0,7 dB (le livre imprime -0,4 : erreur de calcul, la conclusion tient) ; l'annulation efface
+    # trois additions. Moyenne en puissance (celle du kit) : +4,3 dB, proche des +5,5 dB entendus.
+    import math
+    vals = [5, 5.5, 6, -19.2]
+    assert sum(vals) / 4 == pytest.approx(-0.675, abs=0.001)
+    assert 10 * math.log10(sum(10 ** (v / 10) for v in vals) / 4) == pytest.approx(4.27, abs=0.01)
+
+
+def test_plan_micros_onax_offax():
+    import plan_3d
+    import yaml
+    fiche = yaml.safe_load((RACINE / "data" / "evenements" / "exemple_2piles_exterieur.yaml").read_text(encoding="utf-8"))
+    cfg = yaml.safe_load((RACINE / "data" / "configs" / f"{fiche['systeme']['config']}.yaml").read_text(encoding="utf-8"))
+    sc = plan_3d.construire(fiche, cfg)
+    m = {x["id"]: x for x in sc["mics"]}
+    assert m["P2"]["role"] == "eq" and m["P3"]["role"] == "offax" and m["P4"]["role"] == "offax"
+    assert m["P2"]["x"] == m["P1"]["x"]                      # ONAX sur l'axe de la pile de référence
+    assert abs(m["P2"]["x"]) > 1                             # jamais sur la ligne centrale G/D

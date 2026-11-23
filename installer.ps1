@@ -41,7 +41,10 @@ if ($LASTEXITCODE -ne 0) { throw "Installation des dépendances échouée." }
 $dest = Join-Path $racine ".claude\skills"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 Get-ChildItem -Directory (Join-Path $racine "skills") | ForEach-Object {
-    Copy-Item -Recurse -Force $_.FullName (Join-Path $dest $_.Name)
+    # Copier le CONTENU : si la cible existe, « Copy-Item dossier cible » créerait cible\dossier (copie périmée au-dessus)
+    $cible = Join-Path $dest $_.Name
+    New-Item -ItemType Directory -Force -Path $cible | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $_.FullName "*") $cible
     Write-Host "Skill installé :" $_.Name
 }
 

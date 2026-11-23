@@ -271,6 +271,8 @@ def autotest():
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["ports", "chercher", "lire", "diff", "set", "parametres", "autotest"])
     ap.add_argument("args", nargs="*")

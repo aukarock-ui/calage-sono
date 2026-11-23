@@ -340,6 +340,8 @@ def chercher(duree: float = 2.5) -> list[dict]:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["chercher", "info", "lire", "niveaux", "set", "autotest"])
     ap.add_argument("args", nargs="*")

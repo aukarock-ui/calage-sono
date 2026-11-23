@@ -8,6 +8,9 @@ Usage :
   python tools/calc_systeme.py data/configs/ma-sono-actuel.yaml            # tableau Markdown
   python tools/calc_systeme.py data/configs/ma-sono-actuel.yaml --json     # sortie machine
   python tools/calc_systeme.py --delai 12.4 --temp 28                      # distance (m) -> délai (ms)
+  python tools/calc_systeme.py --renfort 45 10 --temp 25                   # délai d'un renfort (au point de raccord)
+  python tools/calc_systeme.py --puissance 95 20 97 --cable 20 1.5 6       # puissance ampli requise
+  python tools/calc_systeme.py --dc 2500 1.0 10                            # distance critique (V, RT60, Q)
 
 Formules (méthode §2, §5, §8) :
   V = sqrt(P x R)                      tension aux bornes d'un HP
@@ -47,6 +50,55 @@ def vitesse_son(temp_c: float) -> float:
 
 def delai_ms(distance_m: float, temp_c: float = 20.0) -> float:
     return distance_m / vitesse_son(temp_c) * 1000
+
+
+# --- Dimensionnement (Boyce 2014, §11.6.6, §11.6.7, §11.9 ; contrôlé sur ses exemples chiffrés) ---
+RHO_CUIVRE = 0.0172  # ohm.mm²/m à 20 °C (16 AWG = 1,31 mm² -> 0,0131 ohm/m, Boyce : 0,0132)
+
+
+def perte_cable_db(longueur_m: float, section_mm2: float, re_ohm: float) -> float:
+    """Perte (dB) dans un câble HP aller-retour, diviseur de tension câble / résistance de bobine Re.
+    Elle réduit la tension aux bornes : un seuil calculé aux bornes reste du côté sûr. Ne jamais
+    relever un limiteur au nom du câble sans mesurer la tension aux bornes."""
+    if min(longueur_m, section_mm2, re_ohm) <= 0:
+        raise ValueError("longueur, section et Re doivent être > 0")
+    r_cable = 2 * RHO_CUIVRE * longueur_m / section_mm2
+    return 20 * math.log10((re_ohm + r_cable) / re_ohm)
+
+
+def puissance_requise(spl_cible_db: float, distance_m: float, sensibilite_db_1w1m: float,
+                      marge_db: float = 6.0, perte_cable: float = 0.0) -> dict:
+    """Puissance ampli continue nécessaire (champ libre, une enceinte, sur l'axe ; ni gain de salle ni
+    absorption de l'air ni du public). Marge : 3 dB au minimum, 6 dB adapté à la plupart des cas (Boyce)."""
+    if distance_m <= 0:
+        raise ValueError("distance doit être > 0")
+    chute = 20 * math.log10(distance_m / 1.0)
+    excedent = spl_cible_db + chute + marge_db - sensibilite_db_1w1m + perte_cable
+    return {"chute_distance_db": round(chute, 2), "spl_requis_1m_db": round(spl_cible_db + chute + marge_db, 2),
+            "excedent_sur_1w_db": round(excedent, 2), "puissance_w": round(10 ** (excedent / 10), 0)}
+
+
+def delai_renfort_ms(d_principal_m: float, d_renfort_m: float, temp_c: float = 20.0,
+                     precedence_ms: float = 0.0) -> float:
+    """Délai d'un renfort = écart des trajets façade / renfort au point de raccord (XOVR : point d'égal niveau des
+    deux systèmes), plus une marge de précédence éventuelle.
+    Par défaut 0 ms : raccord aligné en phase (McCarthy 2007, ch. 10 : ajouter 10 ms crée un filtrage en peigne
+    jusqu'à 50 Hz et baisse l'intelligibilité ; il ne propose la marge qu'à la demande, après écoute).
+    Boyce (§11.6.7) conseille environ 10 ms pour garder la localisation sur la façade : à passer explicitement.
+    Point de départ dans tous les cas : le réglage final se fait à l'IR au point de raccord."""
+    if d_principal_m < d_renfort_m:
+        raise ValueError("l'auditeur doit être plus loin de la façade que du renfort")
+    if precedence_ms < 0:
+        raise ValueError("marge de précédence négative : le renfort arriverait avant la façade")
+    return delai_ms(d_principal_m - d_renfort_m, temp_c) + precedence_ms
+
+
+def distance_critique_m(volume_m3: float, rt60_s: float, q: float) -> float:
+    """Distance critique sur l'axe : Dc = 0,057 x sqrt(Q.V / RT60) (unités SI). Au-delà de ~2 Dc, la
+    parole se dégrade nettement ; vers 3 Dc (direct/réverbéré ~ -10 dB) elle devient inacceptable."""
+    if min(volume_m3, rt60_s, q) <= 0:
+        raise ValueError("volume, RT60 et Q doivent être > 0")
+    return 0.057 * math.sqrt(q * volume_m3 / rt60_s)
 
 
 def charger(chemin_config: str):
@@ -315,17 +367,59 @@ def rapport_markdown(cfg: dict, lignes: list[dict]) -> str:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, − sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config", nargs="?")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--delai", type=float, help="distance en m")
     ap.add_argument("--temp", type=float, default=20.0)
+    ap.add_argument("--renfort", nargs=2, type=float, metavar=("D_FACADE", "D_RENFORT"),
+                    help="distances (m) du point de raccord (égal niveau) à la façade et au renfort -> délai du renfort")
+    ap.add_argument("--precedence", type=float, default=0.0,
+                    help="marge de précédence (ms) : 0 par défaut (raccord aligné, McCarthy) ; ~10 selon Boyce")
+    ap.add_argument("--puissance", nargs=3, type=float, metavar=("SPL", "DIST", "SENS"),
+                    help="SPL visé (dB) à DIST (m), sensibilité 1 W/1 m -> puissance ampli requise")
+    ap.add_argument("--marge", type=float, default=6.0, help="marge dynamique (dB), défaut 6")
+    ap.add_argument("--cable", nargs=3, type=float, metavar=("LONGUEUR_M", "SECTION_MM2", "RE_OHM"),
+                    help="câble HP (longueur simple, section, Re du HP) -> perte en dB")
+    ap.add_argument("--dc", nargs=3, type=float, metavar=("VOLUME_M3", "RT60_S", "Q"),
+                    help="distance critique de la salle pour une enceinte de facteur Q")
     a = ap.parse_args()
     if a.delai is not None:
         print(f"{a.delai} m à {a.temp} °C (c = {vitesse_son(a.temp):.1f} m/s) -> {delai_ms(a.delai, a.temp):.3f} ms")
         return
+    outils = False
+    perte = 0.0
+    if a.cable:
+        perte = perte_cable_db(*a.cable)
+        print(f"Câble {a.cable[0]:g} m x2 en {a.cable[1]:g} mm² sur Re {a.cable[2]:g} Ω -> perte {perte:.2f} dB "
+              f"({(1 - 10 ** (-perte / 10)) * 100:.0f} % de la puissance). Seuils limiteurs : inchangés (calculés aux bornes).")
+        outils = True
+    if a.puissance:
+        r = puissance_requise(*a.puissance, marge_db=a.marge, perte_cable=perte)
+        print(f"{a.puissance[0]:g} dB SPL à {a.puissance[1]:g} m : chute {r['chute_distance_db']} dB, "
+              f"{r['spl_requis_1m_db']} dB requis à 1 m (marge {a.marge:g} dB), {r['excedent_sur_1w_db']} dB au-dessus de 1 W "
+              f"(câble {perte:.2f} dB) -> {r['puissance_w']:.0f} W continus par enceinte. Champ libre, sans gain de salle. "
+              "Ne change jamais le plafond du limiteur (puissance AES du HP).")
+        outils = True
+    if a.renfort:
+        d = delai_renfort_ms(*a.renfort, a.temp, a.precedence)
+        print(f"Renfort : {d:.1f} ms (écart {a.renfort[0] - a.renfort[1]:g} m à {a.temp:g} °C"
+              + (f" + précédence {a.precedence:g} ms" if a.precedence else ", raccord aligné en phase") + "), à confirmer à l'IR au point de raccord.")
+        if a.precedence:
+            print(f"  Attention : {a.precedence:g} ms de décalage créent un peigne dès {1000 / (2 * a.precedence):.0f} Hz "
+                  "au point de raccord (McCarthy). Comparer à l'écoute avec le raccord aligné avant de garder la marge.")
+        outils = True
+    if a.dc:
+        dc = distance_critique_m(*a.dc)
+        print(f"Distance critique ≈ {dc:.1f} m ; public au-delà de ~{2 * dc:.0f} m : envisager renforts retardés "
+              f"ou enceinte plus directive (parole inacceptable vers {3 * dc:.0f} m).")
+        outils = True
+    if outils:
+        return
     if not a.config:
-        ap.error("config requise (ou --delai)")
+        ap.error("config requise (ou --delai, --renfort, --puissance, --cable, --dc)")
     mat, cfg = charger(a.config)
     lignes = [calc_voie(v, mat, cfg) for v in cfg["voies"]]
     print(json.dumps({"config": cfg["nom"], "voies": lignes}, ensure_ascii=False, indent=2) if a.json else rapport_markdown(cfg, lignes))

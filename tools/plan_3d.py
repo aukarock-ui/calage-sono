@@ -12,8 +12,10 @@ y vers le public, z vers le haut. Mètres.
 Règles de placement des micros (méthode §5, McCarthy) :
   - ALIGNEMENT : sur l'axe de la pile de référence, au 1/3 de la profondeur public ; micro à 1,6 m pour les voies
     médium/aigu, POSÉ AU SOL (demi-espace) au même point pour les voies coupées ≤ 500 Hz (supprime le creux du rebond sol).
-  - EQ : moyenne de 3 points (milieu décentré, fond décentré, bord), jamais pile au centre entre deux piles
-    (interférences G/D) ; la régie sert de contrôle, pas de référence.
+  - EQ et niveau : position ONAX = sur l'axe de la pile de référence, à mi-profondeur (point le plus isolé de l'autre
+    pile). Jamais au centre entre deux piles (interférences G/D, point de raccord). McCarthy 2007, ch. 10.
+  - OFFAX (fond, bord) : contrôle de la couverture, pas de décision d'EQ ; ≤ 6 dB sous ONAX avec la même tendance,
+    sinon revoir l'orientation. La régie sert de contrôle, pas de référence.
 Hauteurs des centres acoustiques = centre géométrique des caisses (approximation, signalée).
 """
 from __future__ import annotations
@@ -114,16 +116,17 @@ def construire(fiche: dict, cfg: dict) -> dict:
     ref = min(piles, key=lambda q: q["x"]) if len(piles) > 1 else piles[0]
     s = -1 if ref["x"] < 0 else 1
     deux_piles = len(piles) > 1
-    x_eq = ref["x"] / 2 if deux_piles else W / 4
+    x_eq = ref["x"] if deux_piles else 0.0   # ONAX : sur l'axe de la pile de référence
     mics = [
         {"id": "P1", "role": "alignement", "x": ref["x"], "y": y0 + D / 3, "z": 1.6,
          "consigne": f"Sur l'axe de la pile {ref['nom']}. Micro POSÉ AU SOL pour {', '.join(v for v in ordre if v in graves)} ; "
                      f"à 1,6 m au même point pour les autres voies."},
-        {"id": "P2", "role": "eq", "x": x_eq, "y": y0 + D / 3, "z": 1.6,
-         "consigne": "Milieu de public, décentré (évite la ligne d'interférence G/D)."},
-        {"id": "P3", "role": "eq", "x": x_eq, "y": y0 + 2 * D / 3, "z": 1.6, "consigne": "Fond de zone, décentré."},
-        {"id": "P4", "role": "eq", "x": s * 0.85 * W / 2, "y": y0 + D / 3, "z": 1.6,
-         "consigne": f"Bord extérieur côté {ref['nom']} (couverture hors axe)."},
+        {"id": "P2", "role": "eq", "x": x_eq, "y": y0 + D / 2, "z": 1.6,
+         "consigne": f"ONAX : axe de la pile {ref['nom']}, mi-profondeur. Référence de niveau et d'EQ (vue au 1/24 d'octave)."},
+        {"id": "P3", "role": "offax", "x": x_eq, "y": y0 + 0.9 * D, "z": 1.6,
+         "consigne": "OFFAX fond : contrôle de couverture, ≤ 6 dB sous P2 (pas de décision d'EQ ici)."},
+        {"id": "P4", "role": "offax", "x": s * 0.85 * W / 2, "y": y0 + D / 2, "z": 1.6,
+         "consigne": f"OFFAX bord extérieur côté {ref['nom']} : contrôle de couverture, ≤ 6 dB sous P2."},
     ]
     if regie["y"] is not None:
         mics.append({"id": "P5", "role": "controle", "x": regie["x"] + (0.75 if abs(regie["x"]) < 0.5 and deux_piles else 0),
@@ -188,7 +191,11 @@ def construire(fiche: dict, cfg: dict) -> dict:
         f"P1, micro à 1,6 m : {', '.join(air)} chacun seul ; puis paires {', '.join(p for p in paires if not all(x in sol for x in p.split('/')))} "
         "(pour une paire grave/aigu, remesurer la voie grave à 1,6 m).",
         "Si plusieurs piles : reproduire P1 en miroir sur chaque autre pile, vérifier niveau et polarité (réglages identiques attendus).",
-        "P2, P3, P4 : système complet, moyenne spatiale (`osm_client.py moyenne`) → EQ système uniquement sur bandes fiables (cohérence ≥ 0,8).",
+        "P2 (ONAX) : EQ système et niveau, décidés sur une vue au 1/24 d'octave (`--resolution 24`), bandes fiables "
+        "seulement (cohérence ≥ 0,8), en suivant l'enveloppe (les creux étroits ne s'égalisent pas).",
+        "P3, P4 (OFFAX) : superposer à P2. Viser au plus 6 dB d'écart, avec la même tendance spectrale ; au-delà, revoir "
+        "l'orientation ou le placement, pas l'EQ. Une moyenne (`osm_client.py moyenne`) ne réunit que des positions ONAX "
+        "comparables (ex. une par pile), jamais un bord ni un point de raccord.",
         "P5 régie : contrôle global, niveau LAeq/LCeq 15 min sur programme réel ; comparer aux limites réglementaires de la fiche.",
         "Écoute avec musique de référence du style, ajustements fins, puis mémorisation du preset et mise à jour du journal.",
     ]
@@ -280,9 +287,9 @@ canvas{{width:100%;height:min(70vh,520px);display:block;touch-action:none;border
 table{{border-collapse:collapse;width:100%;font-size:.86rem}} td,th{{border-bottom:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}}
 svg.dessus{{width:100%;height:auto}} .zone{{fill:rgba(194,65,12,.08);stroke:var(--acc);stroke-dasharray:4 3}} .scene{{stroke:var(--fg);stroke-width:2}}
 .pile{{fill:#2f3a4a}} .regie{{fill:none;stroke:var(--mut)}} .cote{{stroke:var(--mut);stroke-dasharray:2 3}}
-.mic{{stroke:#fff;stroke-width:2}} .mic.alignement{{fill:#c2410c}} .mic.eq{{fill:#2563eb}} .mic.controle{{fill:#16a34a}}
+.mic{{stroke:#fff;stroke-width:2}} .mic.alignement{{fill:#c2410c}} .mic.eq{{fill:#2563eb}} .mic.controle{{fill:#16a34a}} .mic.offax{{fill:#7c3aed}}
 .lbl{{font-size:12px;font-weight:600;fill:var(--fg)}} .petit{{font-size:10px;fill:var(--mut)}} ol li,ul li{{margin:.3rem 0}}
-  .mic-c{{margin:10px 0}} .mic-c p{{margin:.4rem 0;color:var(--mut);font-size:.9rem}} .role{{font-weight:600}} .role.alignement{{color:#c2410c}} .role.eq{{color:#2563eb}} .role.controle{{color:#16a34a}}
+  .mic-c{{margin:10px 0}} .mic-c p{{margin:.4rem 0;color:var(--mut);font-size:.9rem}} .role{{font-weight:600}} .role.alignement{{color:#c2410c}} .role.eq{{color:#2563eb}} .role.controle{{color:#16a34a}} .role.offax{{color:#7c3aed}}
 .leg span{{display:inline-block;margin-right:12px}} .pt{{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}}
 </style></head><body><main>
 <h1>{html.escape(titre)}</h1>
@@ -291,7 +298,7 @@ svg.dessus{{width:100%;height:auto}} .zone{{fill:rgba(194,65,12,.08);stroke:var(
 <h2>Vue 3D</h2>
 <div class="card"><canvas id="c3d"></canvas>
 <div class="btns"><button data-v="3d">3D</button><button data-v="dessus">Dessus</button><button data-v="face">Face</button><button data-v="micro">Depuis P1</button></div>
-<div class="sub leg"><span><i class="pt" style="background:#c2410c"></i>alignement</span><span><i class="pt" style="background:#2563eb"></i>EQ (moyenne)</span><span><i class="pt" style="background:#16a34a"></i>contrôle</span> · glisser pour tourner, pincer/molette pour zoomer</div></div>
+<div class="sub leg"><span><i class="pt" style="background:#c2410c"></i>alignement</span><span><i class="pt" style="background:#2563eb"></i>EQ / niveau (ONAX)</span><span><i class="pt" style="background:#7c3aed"></i>couverture (OFFAX)</span><span><i class="pt" style="background:#16a34a"></i>contrôle</span> · glisser pour tourner, pincer/molette pour zoomer</div></div>
 
 <h2>Vue de dessus cotée</h2>
 <div class="card">{svg_dessus(sc)}</div>
@@ -342,7 +349,7 @@ function draw(){{const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeigh
   for(const f of F) polys.push({{pts:f.slice(0,4).map(i=>q[i]),fill:shade(b.couleur,f[4]),stroke:'rgba(0,0,0,.35)'}})}}
  const pp=[];for(const p of polys){{const s=p.pts.map(P);if(s.some(v=>!v))continue;pp.push({{s,d:s.reduce((a,v)=>a+v[2],0)/s.length,p}})}}
  pp.sort((a,b)=>b.d-a.d);for(const o of pp){{cx.beginPath();o.s.forEach((v,i)=>i?cx.lineTo(v[0],v[1]):cx.moveTo(v[0],v[1]));cx.closePath();cx.fillStyle=o.p.fill;cx.fill();if(o.p.stroke){{cx.strokeStyle=o.p.stroke;cx.stroke()}}}}
- const col={{alignement:'#c2410c',eq:'#2563eb',controle:'#16a34a'}};cx.font='600 12px system-ui';
+ const col={{alignement:'#c2410c',eq:'#2563eb',controle:'#16a34a',offax:'#7c3aed'}};cx.font='600 12px system-ui';
  for(const m of S.mics){{const a=P([m.x,m.y,0]),b=P([m.x,m.y,m.z]);if(!a||!b)continue;cx.strokeStyle=col[m.role];cx.lineWidth=2;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke();
   cx.fillStyle=col[m.role];cx.beginPath();cx.arc(b[0],b[1],6,0,7);cx.fill();cx.fillStyle=dark?'#fff':'#111';cx.fillText(m.id,b[0]+8,b[1]-6)}}
 }}
@@ -355,6 +362,8 @@ cv.addEventListener('touchend',()=>pinch=null);addEventListener('resize',draw);d
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("fiche")
     ap.add_argument("-o", "--sortie")

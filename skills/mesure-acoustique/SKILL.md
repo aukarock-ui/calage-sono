@@ -35,9 +35,26 @@ description: Mesurer et analyser la réponse d'un système son (fonction de tran
 - Chaque voie SEULE d'abord (autres voies mutées), puis par paires autour de chaque Fc, puis système complet.
 - Niveau : départ −20 dBFS, +3 dB par pas, jamais au-delà de ce qui est nécessaire pour 10–15 dB au-dessus du bruit.
 - Grave : mesures en extérieur au sol (demi-espace) ou à ≥ 2× la hauteur de pile ; noter la température (vitesse du son).
-- Moyenne spatiale : ≥ 3 positions pour toute décision d'EQ ; une seule position suffit pour l'alignement si elle est
-  sur l'axe de sommation des deux voies.
-- Cohérence faible (< 0,8) ⇒ ne pas décider sur ces fréquences (`osm_client` marque chaque tiers d'octave « fiable » ou non).
+- **Classes de positions** (McCarthy 2007, ch. 10 ; reprises par `plan_3d.py`) :
+  - **ONAX** : point le plus isolé de chaque sous-système (sur son axe, à mi-profondeur). Sert à l'EQ, au niveau et au
+    contrôle de la salle ;
+  - **OFFAX** : bords de la zone public (fond, côté, premier rang). Sert à l'orientation ; ≤ 6 dB sous l'ONAX ;
+  - **XOVR** : point d'égal niveau entre deux sous-systèmes. Il se cherche à la mesure et se déplace vers le plus
+    faible. Sert aux délais et à la phase, jamais à l'EQ ;
+  - **SYM** : le symétrique d'une position déjà calée, pour vérifier.
+- Plusieurs positions : superposer les courbes et suivre l'enveloppe. Une moyenne
+  (`osm_client.py moyenne`, en puissance pondérée par la cohérence) ne réunit que des positions ONAX comparables. Ne
+  jamais additionner des micros. Une moyenne en dB serait tirée vers le bas par les annulations : dans l'exemple de
+  McCarthy, 3 positions à +5 / +5,5 / +6 dB et une à −19,2 dB donnent −0,7 dB en dB, mais +4,3 dB en puissance.
+- Résolution : pour décider d'un filtre d'EQ, lire au 1/24 d'octave (`osm_client.py lire … --resolution 24`,
+  `mesure_tf.py analyser … --resolution 24`). Le tiers d'octave par défaut ne sert qu'à la vue d'ensemble.
+- Micro : hauteur debout (environ 1,6 m) pour éviter les dossiers de sièges vides, au sol (ground plane, +6 dB à
+  compter) pour le grave ; une tolérance d'orientation de ±30° suffit. Dans une salle qui va se remplir, ne pas
+  corriger les réflexions de sol ou de sièges, qui disparaîtront avec le public.
+- Cohérence faible (< 0,8) ⇒ ne pas décider sur ces fréquences (`osm_client` marque chaque bande « fiable » ou non).
+- Contrôles de vraisemblance : l'ONAX doit être la meilleure réponse, sinon chercher l'erreur (mauvais axe, mauvaise
+  enceinte). En doublant la distance sur l'axe, on doit perdre environ 6 dB. Les deux côtés symétriques doivent
+  donner la même réponse.
 
 ## Alignement à une coupure (ex. SUB/KICK à 55 Hz)
 1. Mesurer A seul et B seul, même position micro, même niveau de référence.
@@ -52,5 +69,7 @@ description: Mesurer et analyser la réponse d'un système son (fonction de tran
 5. Valider en mesurant A+B : sommation ≈ +6 dB à Fc pour des niveaux égaux.
 
 ## Ce que Claude ne fait pas
-- Décider d'une EQ sur une mesure isolée ou à faible cohérence.
+- Décider d'une EQ ailleurs qu'en ONAX, sur une vue en tiers d'octave, ou à faible cohérence.
+- Égaliser un pic qui varie d'une chanson à l'autre pendant le concert : c'est la scène (fuite des instruments ou
+  peigne entre micros dans la console), pas le système. Le signaler au mixeur (McCarthy p. 477).
 - Corriger un creux d'annulation à l'EQ (c'est un problème de délai, de placement ou de polarité).

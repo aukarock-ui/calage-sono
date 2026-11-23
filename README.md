@@ -28,6 +28,8 @@ Tests automatiques (installés par `installer.ps1 -Dev`) : `.venv\Scripts\python
 Ils sont aussi lancés par GitHub Actions à chaque push (`.github/workflows/tests.yml`, Windows, Python 3.12 et 3.13).
 ```
 python tools/calc_systeme.py data/configs/ma-sono-actuel.yaml
+python tools/calc_systeme.py --puissance 95 20 97 --cable 20 1.5 6   # dimensionnement (Boyce §11.9)
+python tools/calc_systeme.py --renfort 45 10 --temp 25             # délai d'un renfort
 python tools/mesure_tf.py autotest
 python tools/faux_venu360.py          # dans une 2e fenêtre
 python tools/dbx_hiqnet.py info 127.0.0.1

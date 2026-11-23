@@ -108,15 +108,16 @@ def lissage_oct(f, mag_db, frac=6):
     return out
 
 
-def resume(f, H, ir, fs=FS, bande=(20, 20000), coh=None):
+def resume(f, H, ir, fs=FS, bande=(20, 20000), coh=None, n=3):
+    """Résumé par bandes de 1/n d'octave (3 = vue d'ensemble ; 24 pour décider d'un filtre d'EQ, McCarthy ch. 8)."""
     dly, pol = delai_ir(ir, fs)
     # phase avec le délai de propagation retiré
     Hc = H * np.exp(2j * np.pi * f * dly / 1000)
-    mag = 20 * np.log10(np.abs(H) + 1e-12)
-    centres = [f0 for f0 in 1000 * 2 ** (np.arange(-17, 15) / 3) if bande[0] <= f0 <= bande[1]]
+    k0, k1 = int(np.floor(n * np.log2(20 / 1000))), int(np.ceil(n * np.log2(20000 / 1000)))
+    centres = [f0 for f0 in 1000 * 2 ** (np.arange(k0, k1 + 1) / n) if bande[0] <= f0 <= bande[1]]
     tiers = []
     for fc in centres:
-        m = (f >= fc / 2 ** (1 / 6)) & (f < fc * 2 ** (1 / 6))
+        m = (f >= fc / 2 ** (1 / (2 * n))) & (f < fc * 2 ** (1 / (2 * n)))
         if m.any():
             t = {"f_hz": round(float(fc), 1), "mag_db": round(float(10 * np.log10(np.mean(np.abs(H[m]) ** 2))), 2),
                  "phase_deg": round(float(np.degrees(np.angle(np.mean(Hc[m])))), 1)}
@@ -184,6 +185,8 @@ def autotest():
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["lister", "mesurer", "analyser", "comparer", "autotest"])
     ap.add_argument("fichiers", nargs="*")
@@ -196,6 +199,8 @@ def main():
     ap.add_argument("--moyennes", type=int, default=3, help="nombre de sweeps moyennés (1…16)")
     ap.add_argument("--fs", type=int, default=FS)
     ap.add_argument("--bande", type=float, nargs=2, default=[20, 20000])
+    ap.add_argument("--resolution", type=int, default=3, choices=[1, 3, 6, 12, 24, 48],
+                    help="bandes par octave du résumé : 3 (vue d'ensemble), 24 (décision d'EQ)")
     ap.add_argument("--fc", type=float)
     ap.add_argument("-o", "--sortie")
     ap.add_argument("--appliquer", action="store_true",
@@ -210,7 +215,7 @@ def main():
         D = np.load(a.fichiers[0])
         f, H, ir, coh = fonction_transfert_moy(D["ref"], D["mic"], int(D["fs"]))
         n = np.atleast_2d(D["ref"]).shape[0]
-        print(json.dumps(resume(f, H, ir, int(D["fs"]), tuple(a.bande), coh if n > 1 else None),
+        print(json.dumps(resume(f, H, ir, int(D["fs"]), tuple(a.bande), coh if n > 1 else None, n=a.resolution),
                          ensure_ascii=False, indent=1))
         return
     try:

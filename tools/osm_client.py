@@ -21,6 +21,7 @@ Usage :
   python tools/osm_client.py lire <hôte> <uuid|nom de mesure> -o mesures/sub_pos1.json [--bande 30 200]
   python tools/osm_client.py comparer A.json B.json --fc 55              # phase / niveau / sommation à la coupure
   python tools/osm_client.py moyenne A.json B.json C.json -o moy.json    # moyenne spatiale (puissance, pondérée cohérence)
+  --resolution 24 (lire, moyenne) : bandes au 1/24 d'octave pour décider d'un filtre d'EQ (3 par défaut = vue d'ensemble)
   python tools/osm_client.py generateur <hôte> --gain -30 --on|--off --appliquer
 """
 from __future__ import annotations
@@ -98,13 +99,17 @@ def trouver_source(hote: str, cle: str, duree: float = 4.0) -> str:
 
 
 # ---------------- analyse ----------------
-def tiers_octave(ft: list, bande=(20.0, 20000.0), coh_min=0.0) -> list:
+def tiers_octave(ft: list, bande=(20.0, 20000.0), coh_min=0.0, n: int = 3) -> list:
+    """Bandes de 1/n d'octave (n = 3 par défaut : vue d'ensemble). Décider d'un filtre d'EQ sur une vue au 1/24
+    d'octave (McCarthy 2007, ch. 8 : une EQ en 1/6 d'octave demande une analyse 4 fois plus fine)."""
+    if n not in (1, 3, 6, 12, 24, 48):
+        raise ValueError("résolution : 1, 3, 6, 12, 24 ou 48 bandes par octave")
     out = []
-    for k in range(-17, 15):
-        fc = 1000 * 2 ** (k / 3)
+    for k in range(math.floor(n * math.log2(20 / 1000)), math.ceil(n * math.log2(20000 / 1000)) + 1):
+        fc = 1000 * 2 ** (k / n)
         if not bande[0] <= fc <= bande[1]:
             continue
-        lo, hi = fc / 2 ** (1 / 6), fc * 2 ** (1 / 6)
+        lo, hi = fc / 2 ** (1 / (2 * n)), fc * 2 ** (1 / (2 * n))
         cel = [c for c in ft if lo <= c[0] < hi and c[2] > 0]
         if not cel:
             continue
@@ -135,6 +140,8 @@ def charger(p: str) -> dict:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["ecouter", "lire", "comparer", "moyenne", "generateur"])
     ap.add_argument("args", nargs="*")
@@ -146,7 +153,9 @@ def main():
     ap.add_argument("--off", action="store_true")
     ap.add_argument("--appliquer", action="store_true")
     ap.add_argument("-o", "--sortie")
+    ap.add_argument("--resolution", type=int, default=3, help="bandes par octave : 3 (vue d'ensemble), 24 (décision d'EQ)")
     a = ap.parse_args()
+    cle_b = "tiers_octave" if a.resolution == 3 else f"bandes_1_{a.resolution}_octave"
 
     if a.cmd == "ecouter":
         vus = ecouter(a.duree)
@@ -169,7 +178,7 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(r), encoding="utf-8")
         print(f"Enregistré : {out} ({len(r.get('ftdata', []))} points)")
-        print(json.dumps({**pic_ir(r.get("timeData", [])), "tiers_octave": tiers_octave(r["ftdata"], tuple(a.bande))},
+        print(json.dumps({**pic_ir(r.get("timeData", [])), cle_b: tiers_octave(r["ftdata"], tuple(a.bande), n=a.resolution)},
                          ensure_ascii=False, indent=1))
         return
 
@@ -202,7 +211,9 @@ def main():
             moy.append([mes[0][i][0], 0.0, math.sqrt(p2), math.atan2(im, re), min(m[i][4] for m in mes)])
         out = {"message": "moyenne", "sources": a.args, "ftdata": moy}
         Path(a.sortie or "moyenne.json").write_text(json.dumps(out), encoding="utf-8")
-        print(json.dumps(tiers_octave(moy, tuple(a.bande)), ensure_ascii=False, indent=1))
+        print("Moyenne en puissance pondérée par la cohérence : n'y mettre que des positions comparables et isolées (ONAX), "
+              "jamais un bord (OFFAX) ni un point de raccord (XOVR). Regarder aussi les courbes séparées (enveloppe).", file=sys.stderr)
+        print(json.dumps(tiers_octave(moy, tuple(a.bande), n=a.resolution), ensure_ascii=False, indent=1))
         return
 
     if a.cmd == "generateur":

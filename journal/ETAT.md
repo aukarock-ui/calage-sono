@@ -3,6 +3,32 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-23 (suite 5) — Ouvrages de Louis lus (Boyce, McCarthy en entier pour le calage)
+- **Boyce**, *Introduction to Live Sound Reinforcement* (2014), lu sur tout ce qui touche au calage. Ajouts à `calc_systeme.py` :
+  - `--puissance` : puissance ampli requise ;
+  - `--cable` : perte du câble HP ;
+  - `--renfort` : délai d'un renfort (précédence en option, voir McCarthy plus bas) ;
+  - `--dc` : distance critique.
+  Les quatre sont testés sur les exemples chiffrés du livre : 1188 W contre 1183 W, 0,73 dB, 112,9 ms contre 113 ms, 2·Dc = 18 m (5 tests pytest de plus). Aucun ne modifie un plafond de limiteur.
+- Correctif : la sortie console de `calc_systeme.py` plantait sous Windows (cp1252) sur « Ω » et « ≈ ». Elle passe maintenant en UTF-8.
+- `skills/methode-calage` §3, 5, 7, 8, 10 :
+  - couverture, couplage, sommation ;
+  - renforts et température ;
+  - pas de notch en EQ système, au plus six filtres environ ;
+  - bridge, détection crête ou RMS, protections d'ampli ;
+  - test d'ensemble et sécurité.
+  Sources dans `docs/references/README.md`, avec chaque chiffre vérifié dans le texte.
+- **McCarthy**, *Sound Systems: Design and Optimization* (2007), PDF complet envoyé par Louis, lu sur les chapitres du calage (ch. 2, 6 subs, 8, 9 vérification, 10 calibration). Il corrige le kit sur trois points :
+  1. **Renforts** : `--renfort` aligne en phase au point de raccord par défaut (0 ms de précédence). Les 10 ms de Boyce passent en option (`--precedence 10`), et le programme signale le peigne qu'elles créent.
+  2. **EQ** : décision en position ONAX, sur une vue au 1/24 d'octave (nouvelle option `--resolution` dans `osm_client.py` et `mesure_tf.py`). Une moyenne ne réunit que des positions ONAX comparables, et les bords ne servent qu'à l'orientation (≤ 6 dB).
+  3. **`plan_3d.py`** : P2 devient l'ONAX (axe de la pile, mi-profondeur), alors qu'il était à mi-chemin du centre, dans la zone de peigne G/D. P3 et P4 deviennent des OFFAX de contrôle.
+  Méthode §0 (pré-vérification), §5 (subs, renforts, latence, température en concert) et §7 (règles d'EQ, ordre d'opérations).
+  Erreur de calcul relevée dans le livre (p. 434 : −0,7 dB et non −0,4 dB), consignée dans `docs/references/README.md`.
+- Correctif console Windows (cp1252) étendu à tous les outils : `plan_3d.py --json` plantait aussi.
+- Installateur : copie des skills corrigée (elle créait un sous-dossier périmé quand la cible existait).
+- Tests : 39, tous verts.
+- Rien n'est publié (Drive, GitHub) avant la validation de Louis. Il reste aussi un commit précédent à pousser une fois l'autorisation « workflow » de GitHub accordée.
+
 ## 2026-11-23 (suite 4) — Trois audits externes traités (Gemini, ChatGPT, audit approfondi) — voir `audits/`
 - Les garde-fous sont maintenant dans le code (`tools/garde_fous.py`) :
   - **Plafond de limiteur** : écrire un seuil (dbx, DCX, t.racks) exige `--config` et `--voie`. Un seuil au-dessus du plafond de `calc_systeme.py` est refusé ; la dérogation `--depasser-plafond` est journalisée.
@@ -127,6 +153,7 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
 - Les trois sont testés sur simulateur, pas encore sur l'appareil.
 
 ## Questions ouvertes
+- [ ] Longueur et section des câbles HP de chaque voie (pour `--cable`), Re des HP manquants.
 - [ ] Réglage « analog output gain » des sorties du Venu360 (+4 … +22) — chemin trouvé (`\\Node\Settings\SV\OutputNGain`), reste à le lire sur la machine (`carte`).
 - [ ] Gains réels des amplis en bridge (PL380, PLX3002, RMX2450) — mesure voltmètre.
 - [ ] HPF actuel du SUB (obligatoire en bass-reflex) et type du HPF SUPER.
