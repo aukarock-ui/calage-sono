@@ -15,7 +15,7 @@ format exact des valeurs écrites (unités collées : « 90Hz », « -3.0dB », 
 - TCP 19272, lignes texte UTF-8 terminées par `\n`. Plusieurs commandes peuvent partir dans un même paquet.
 - Découverte : broadcast UDP 19272 de `get "\\Node\AT\Class_Name"` (+ Instance_Name, Software_Version).
 - Ouverture : le client envoie une ligne vide → `HiQnet Console` → `connect administrator "<mdp>"` →
-  `connect logged in as administrator` (échec : `error could not connect as ...`). Mdp par défaut : `administrator`.
+  `connect logged in as administrator` (échec : `error could not connect as ...`). Mdp par défaut : `administrator`. Le protocole n'est pas chiffré : réseau isolé obligatoire. Le kit lit `DBX_MDP` et ne journalise jamais le mot de passe.
 - FTP 21 : probablement transfert de presets / firmware (non exploré).
 
 ## Syntaxe

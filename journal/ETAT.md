@@ -16,7 +16,21 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
   - signale un HPF sous l'accord d'évent ;
   - si l'ampli écrête avant la tension HP, le seuil est limité à sa tension d'écrêtage.
 - Hypothèse ouverte : 0 dB du limiteur DCX = 0 dBFS = +22 dBu. Le plafond DCX est vérifié en dBFS ; **voltmètre**.
-- Reste à faire (P2) : CI/pytest, venv dans `installer.ps1`, mot de passe dbx par variable d'environnement, LICENSE (décision de Louis), moyennes dans `mesure_tf.py`.
+- P2 traités ensuite, à la demande de Louis :
+  - `installer.ps1` crée `.venv` et installe les versions figées (`constraints.txt`, Python 3.12+) ;
+  - tests pytest (`tests/`) et CI GitHub Actions ;
+  - mot de passe dbx dans la variable `DBX_MDP`, jamais affiché ;
+  - `mesure_tf.py` : moyennes, cohérence et refus des mesures défectueuses ;
+  - rapport calc : section « Limites de ce calcul » ;
+  - licence MIT.
+- **Pente du HPF bass-reflex** : sources réunies dans `docs/references/` (index public, PDF hors GitHub). Nouvel outil `tools/excursion_br.py`, branché dans `calc_systeme.py`.
+  - Modèle : circuit équivalent de Small 1973, avec le HPF BW/LR réel. Validé sur l'exemple publié par Marshall : 6,0 mm calculés pour 5 mm publiés, donc prudent.
+  - Règle de pente : ≥ 14 dB à 0,7·fb (≥ 28 dB/oct entre 0,7·fb et fb).
+  - **Résultat sur la refonte** :
+    - SUB (RCF 21" dans 385 L, accord 34 Hz, 109,5 V visés) : 14,9 mm crête à 46 Hz pour un Xmax de 13,5 mm. Le pic est au-dessus de l'accord, donc c'est le niveau qu'il faut limiter : Xmax est atteint vers 99 V RMS. Le HPF BW24 29 Hz n'atténue que 7,7 dB à 0,7·fb ; un LR48 30 Hz satisfait la règle (17,4 dB).
+    - KICK (2×18" dans 313 L, accord 44 Hz) : 4,2 mm pour un Xmax de 5,5 mm, OK.
+  - Dépasser Xmax veut dire distorsion, pas forcément casse : la limite mécanique est bien plus haut. C'est une alerte, le plafond du limiteur reste thermique. À trancher par Louis après mesure.
+  - Config actuelle : accords inconnus, excursion non calculable. **Mesure d'impédance à faire.**
 
 ## 2026-11-23 (suite 3) — Manuels officiels (dossier Téléchargements) recoupés avec le kit
 - **VENU360** (manuel 5058681-C) : table 0 dBFS par réglage de sortie (p. 10) = celle du kit, confirmée. Limiteur −60…0,

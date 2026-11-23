@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import shlex
 import socket
@@ -132,8 +133,8 @@ class Dbx:
 
     def _envoyer(self, ligne: str) -> None:
         refuser_controle(ligne)              # une entrée ne doit jamais produire deux lignes de protocole
-        if self.verbose:
-            print(f">> {ligne}", file=sys.stderr)
+        if self.verbose:   # le mot de passe n'est jamais affiché
+            print(">> " + ("connect administrator \"****\"" if ligne.startswith("connect ") else ligne), file=sys.stderr)
         assert self.sock
         self.sock.sendall((ligne + "\n").encode("utf-8"))
 
@@ -395,7 +396,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set", "presets", "rappel", "stocker", "rpc"])
     ap.add_argument("args", nargs="*")
-    ap.add_argument("--mdp", default="administrator")
+    ap.add_argument("--mdp", default=None,
+                    help="déconseillé (visible dans l'historique) : préférer la variable d'environnement DBX_MDP")
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--racine", default="\\\\Preset")
     ap.add_argument("--profondeur", type=int, default=4)
@@ -424,7 +426,12 @@ def main() -> None:
         return
 
     ip = a.args[0]
-    with Dbx(ip, a.port, a.mdp, verbose=a.verbose) as d:
+    mdp = a.mdp or os.environ.get("DBX_MDP")
+    if not mdp:
+        mdp = "administrator"
+        print("NB : mot de passe d'usine « administrator » utilisé (DBX_MDP non défini). "
+              "Le changer selon le manuel si le processeur est sur un réseau partagé.", file=sys.stderr)
+    with Dbx(ip, a.port, mdp, verbose=a.verbose) as d:
         if a.cmd == "info":
             for c in ("Class_Name", "Instance_Name", "Software_Version"):
                 print(c, ":", d.get(f"\\\\Node\\AT\\{c}"))

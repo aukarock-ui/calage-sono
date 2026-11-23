@@ -16,6 +16,8 @@ Réponds en français, direct, technique, sans approximation.
 7. Application des réglages selon le niveau du processeur (`docs/processeurs.md`) : réseau (A : dbx, DCX2496, t.racks ; A partiel : ASC-48) ou feuille de saisie (C).
    Attention à l'unité des seuils : dBFS (dbx), dB relatif (DCX), **dBu** (t.racks).
 
+Python : utiliser `.venv\Scripts\python.exe` quand `.venv` existe (créé par `installer.ps1`). Tests : `.venv\Scripts\python.exe -m pytest`.
+
 ## Règles absolues
 - Aucun chiffre de spec hors `data/materiel.yaml` (bibliothèque) ; donnée manquante = question à Louis ou mesure.
 - Calculs électriques et délais : TOUJOURS via les scripts (`calc_systeme.py`, `plan_3d.py`), jamais de tête.
@@ -34,7 +36,7 @@ Réponds en français, direct, technique, sans approximation.
 ## Arborescence
 - `data/materiel.yaml` bibliothèque de composants · `data/configs/` un fichier par système (`_modele-systeme.yaml`)
 - `data/evenements/` une fiche par date (`_modele.yaml`) · `data/venu360_parametres.yaml` carte réseau VENU360
-- `tools/` calc_systeme, plan_3d, osm_client, rew_client, mesure_tf, dbx_hiqnet, faux_venu360, dcx2496, tracks_dsp, linea_tipi
-- `data/protocoles/` tables DCX2496, dictionnaires de classes VENU360 (appli Windows) · `docs/rew_api_5.40b121.json`
+- `tools/` calc_systeme, excursion_br, garde_fous, plan_3d, osm_client, rew_client, mesure_tf, dbx_hiqnet, faux_venu360, dcx2496, tracks_dsp, linea_tipi
+- `data/protocoles/` tables DCX2496, dictionnaires de classes VENU360 (appli Windows) · `docs/rew_api_5.40b121.json` · `docs/references/` ouvrages (index public, PDF hors GitHub)
 - `skills/` methode-calage, nouveau-systeme, fiche-evenement, mesure-acoustique, dbx-reseau
 - `docs/` processeurs, protocole-dbx, protocoles-autres, outils-externes · `plans/` plans générés · `mesures/` · `journal/`

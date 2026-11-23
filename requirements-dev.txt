@@ -1,0 +1,2 @@
+# Outils de développement (tests). Installer : installer.ps1 -Dev
+pytest>=8

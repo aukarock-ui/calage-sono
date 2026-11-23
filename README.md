@@ -12,14 +12,20 @@ Pour relire le kit (humain ou IA) et laisser des notes : voir [`AUDIT.md`](AUDIT
 ## Installation (une fois)
 1. **Récupérer le dossier** : installer Google Drive pour ordinateur ; le dossier `calage-sono` apparaît dans
    `G:\Mon Drive\...` (ou le télécharger en zip). Travailler sur une copie locale si le PC sera hors ligne sur site.
-2. **Python 3.11+** : https://www.python.org (cocher « Add to PATH »).
-3. **Dépendances** (PowerShell, dans le dossier) : `pip install -r requirements.txt`
-4. **Claude Code** : installer puis lancer `claude` dans le dossier. Il lit `CLAUDE.md` automatiquement.
-5. **Skills** (optionnel, pour qu'ils se déclenchent seuls) : `powershell -ExecutionPolicy Bypass -File installer.ps1`
+2. **Python 3.12+** : https://www.python.org (cocher « Add to PATH »).
+3. **Installation** (PowerShell, dans le dossier) : `powershell -ExecutionPolicy Bypass -File installer.ps1`
+   Le script crée l'environnement isolé `.venv`, installe les versions testées (`constraints.txt`) et copie les skills.
+   Les outils se lancent ensuite avec `.venv\Scripts\python.exe tools\<outil>.py`, ou après `.venv\Scripts\Activate.ps1`.
+4. **Claude Code** : l'installer, puis lancer `claude` dans le dossier. Il lit `CLAUDE.md` automatiquement.
+5. **Mot de passe dbx** : s'il n'est plus celui d'usine, le mettre dans la variable d'environnement de la session,
+   par exemple `$env:DBX_MDP = "…"`. L'option `--mdp` reste possible, mais le mot de passe apparaît alors dans l'historique.
+   Il n'est jamais affiché ni journalisé. Le processeur doit rester sur un réseau isolé, jamais sur Internet ni sur un réseau partagé.
 6. **Pare-feu** : autoriser TCP/UDP 19272 (dbx) et 49007 (Open Sound Meter) pour Python.
 7. **Open Sound Meter** : installer depuis github.com/psmokotnin/osm/releases, puis Remote → cocher « Server ».
 
 ## Vérifier que tout marche (sans matériel)
+Tests automatiques (installés par `installer.ps1 -Dev`) : `.venv\Scripts\python.exe -m pytest`.
+Ils sont aussi lancés par GitHub Actions à chaque push (`.github/workflows/tests.yml`, Windows, Python 3.12 et 3.13).
 ```
 python tools/calc_systeme.py data/configs/ma-sono-actuel.yaml
 python tools/mesure_tf.py autotest
@@ -35,6 +41,9 @@ Dans Claude Code : « Nouveau système : … » (skill nouveau-systeme), puis «
 ## Première session sur le vrai VENU360
 Dans Claude Code : « Cartographie le Venu360 à l'adresse 192.168.x.x en lecture seule » → il suit
 `skills/dbx-reseau/SKILL.md` (info, arbre, mode apprentissage) et complète `docs/protocole-dbx.md`.
+
+## Licence
+MIT (licence libre) : voir [`LICENSE`](LICENSE). Elle ne couvre ni les marques ni les manuels des constructeurs.
 
 ## Mise à jour
 Ce dossier est tenu à jour depuis le projet Claude « MA Sono » (là où il a été créé). Le journal `journal/ETAT.md` est la mémoire du terrain :

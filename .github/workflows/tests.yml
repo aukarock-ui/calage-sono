@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Dépendances (versions figées)
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt -c constraints.txt
+      - name: Analyse statique (erreurs de syntaxe)
+        run: python -m compileall -q tools tests
+      - name: Tests sans matériel
+        run: python -m pytest -q tests

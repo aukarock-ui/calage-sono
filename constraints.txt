@@ -1,0 +1,7 @@
+﻿# Versions testÃ©es (installer.ps1 et CI les imposent). Mettre Ã  jour aprÃ¨s un essai complet des autotests.
+PyYAML==6.0.4
+numpy==2.5.5
+scipy==1.18.1
+sounddevice==0.5.6
+pyserial==3.5
+pytest==9.2.0

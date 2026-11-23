@@ -12,7 +12,7 @@ Simulateur pour tester sans matériel : `python tools/faux_venu360.py` puis vise
 - Réseau ISOLÉ (switch/routeur dédié, Wi-Fi sécurisé sans accès Internet). Le Venu360 est en DHCP par défaut.
 - Adresse : Utility → System Info sur la façade, ou `python tools/dbx_hiqnet.py decouvrir`.
 - Pare-feu Windows : autoriser TCP/UDP 19272 (et 21 pour l'appli officielle).
-- Mot de passe par défaut `administrator` (option `--mdp`).
+- Mot de passe : variable d'environnement `DBX_MDP`. S'il manque, le mot de passe d'usine `administrator` est utilisé, avec un avertissement. `--mdp` est déconseillé, car il apparaît dans l'historique. Le mot de passe n'est jamais affiché, même avec `-v`.
 - Si plusieurs cartes réseau sur le PC : donner l'IP à la main.
 
 ## Étape 1 — Lire l'état complet (lecture seule, sans risque)

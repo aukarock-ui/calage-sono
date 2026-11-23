@@ -27,7 +27,15 @@ Système mixte (ex. têtes constructeur + subs DIY) : chaque voie porte son prop
 
 ## Ordre imposé (aucune étape sautée ; en « constructeur », 1-2 et 8 se limitent à vérifier les docs constructeur)
 1. **Mécanique** — par voie : charge (BR / clos / pavillon / BP), accord, bande utile réelle, risque d'excursion sous
-   l'accord. Bass-reflex ⇒ HPF obligatoire sous l'accord. Compression ⇒ HPF ≥ coupure mini constructeur, pente mini
+   l'accord. Bass-reflex ⇒ HPF obligatoire sous l'accord. Deux contrôles, faits automatiquement par `calc_systeme.py`
+   (via `tools/excursion_br.py`) dès que l'accord et le volume de la caisse sont connus :
+   (a) **excursion** calculée (modèle T/S de Small) à la tension cible du limiteur, de 10 Hz à 2·fb, ≤ Xmax ; c'est le
+       critère qui fait foi. Si le pic est AU-DESSUS de l'accord, le HPF n'y peut rien : il faut limiter le niveau ;
+   (b) **pente du HPF** : au moins 14 dB d'atténuation à 0,7·fb, soit ≥ 28 dB/oct entre 0,7·fb et fb (Marshall,
+       audioXpress 2016, `docs/references/`). Un 18 dB/oct ne suffit pas. Les filtres raides ajoutent du retard de groupe
+       (≈ 27 ms à 20 Hz pour un 24 dB/oct) : préférer le plus doux qui satisfait (a) et (b).
+   Le modèle donne un ordre de grandeur. Confirmer l'accord réel par une mesure d'impédance, et l'excursion à faible
+   niveau. Compression ⇒ HPF ≥ coupure mini constructeur, pente mini
    respectée. Jamais de Fc sous la bande utile mécanique.
 2. **Électrique** — `python tools/calc_systeme.py data/configs/<systeme>.yaml`. Citer la sortie, ne pas recalculer à la
    main. Vérifier : impédance vue par l'ampli, série/parallèle, puissance ampli à cette charge, marge, alertes.

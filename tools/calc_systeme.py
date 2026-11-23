@@ -104,6 +104,28 @@ def controle_hpf_bass_reflex(v: dict, cfg: dict) -> list[str]:
     return a
 
 
+def controle_excursion(v: dict, cfg: dict, hp: dict, v_rms_hp: float) -> tuple[list[str], dict | None]:
+    """Bass-reflex : excursion crête calculée (modèle T/S, tools/excursion_br.py) à la tension du limiteur, avec le HPF
+    de la voie, comparée à Xmax ; contrôle aussi la pente du HPF (≥ 14 dB à 0,7·fb, Marshall 2016)."""
+    charge = str(v.get("charge") or "")
+    if not re.search(r"reflex|\bBR\b", charge, re.I):
+        return [], None
+    fb = v.get("accord_event_hz") or _hz(re.search(r"accord[^,;)]*", charge, re.I).group(0)
+                                         if re.search(r"accord", charge, re.I) else None)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:L|litres?)\b", charge)
+    vb = v.get("volume_caisse_l") or (float(m.group(1).replace(",", ".")) if m else None)
+    f, _ = filtres_voie(cfg, v["nom"])
+    if fb is None or vb is None:
+        return [f"Excursion non calculable : {'accord' if fb is None else 'volume de caisse'} inconnu "
+                "(renseigner accord_event_hz / volume_caisse_l)."], None
+    from excursion_br import analyse            # même dossier tools/
+    try:
+        r = analyse(hp, vb, fb, f.get("hpf"), v_rms_hp)
+    except ValueError as e:
+        return [f"Excursion non calculable : {e}."], None
+    return r["alertes"], r
+
+
 def plafond_limiteur(chemin_config: str, nom_voie: str) -> dict:
     """Seuil de limiteur calculé pour une voie (le plus haut autorisé) et son unité. Lève ValueError si non calculable."""
     mat, cfg = charger(chemin_config)
@@ -159,6 +181,13 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         "dbu_cible_bornes": round(dbu(v_bornes), 1),
         "p_totale_voie_w": round(p_lim_hp * n_hp, 0),
     })
+    # Excursion à la tension cible par HP (majorant : le limiteur peut être plus bas si l'ampli écrête avant)
+    al_x, r_x = controle_excursion(v, cfg, hp, v_hp)
+    alertes += al_x
+    if r_x:
+        res["excursion_max_mm"] = r_x["x_max_mm"]
+        res["excursion_f_hz"] = r_x["f_x_max_hz"]
+        res["hpf_attenuation_07fb_db"] = r_x["attenuation_07fb_db"]
     # SPL max théorique (1 m, champ libre). Somme cohérente 20log(n) valable seulement
     # si les HP sont rapprochés devant la longueur d'onde (graves) ; sinon 10log(n).
     sens = hp.get("sensibilite_db_1w1m")
@@ -276,6 +305,12 @@ def rapport_markdown(cfg: dict, lignes: list[dict]) -> str:
     for r in lignes:
         for a in r.get("alertes", []):
             out.append(f"- **{r['voie']}** : {a}")
+    out += ["", "## Limites de ce calcul",
+            "Calcul **théorique**, à confirmer par mesure avant de considérer une voie comme protégée.",
+            "- Les hypothèses sont la puissance de référence de la bibliothèque, l'impédance nominale et le gain ampli déclaré.",
+            "- Le calcul ne modélise pas l'impédance réelle en fonction de la fréquence, ni l'affaissement de l'alimentation ampli, "
+            "ni la compression thermique, ni le facteur de crête du programme, ni l'excursion dans la caisse (Xmax).",
+            "- À vérifier sur place, HP débranchés : tension aux bornes au seuil (voltmètre RMS), puis gain ampli et point d'écrêtage réels."]
     return "\n".join(out)
 
 

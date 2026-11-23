@@ -15,3 +15,8 @@ mesures/*
 data/protocoles/venu360_windows_classes/
 data/protocoles/venu360_windows_classes.zip
 docs/rew_api_5.40b121.json
+.pytest_cache/
+.claude/skills/
+# Références sous droit d'auteur (PC + Drive seulement) : seul l'index est publié
+docs/references/*
+!docs/references/README.md
