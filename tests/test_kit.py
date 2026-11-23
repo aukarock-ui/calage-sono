@@ -318,6 +318,23 @@ def _voie_sub(chemin):
 def test_dbx_rappel_exige_protection_validee(faux_dbx, monkeypatch, tmp_path):
     assert lancer_dbx(faux_dbx, "rappel", "3", "--appliquer", monkeypatch=monkeypatch) != 0
     assert not (tmp_path / "instantanes").exists()
+    assert lancer_dbx(faux_dbx, "rappel", "0", "--appliquer", "--protection-validee", monkeypatch=monkeypatch) != 0
+
+
+def test_dbx_refus_sans_connexion(monkeypatch):
+    # Port fermé : un refus décidable sans l'appareil doit tomber AVANT toute tentative de connexion.
+    def interdit(*a, **k):
+        raise AssertionError("connexion tentée pour une demande refusée")
+    monkeypatch.setattr(dbx_hiqnet.socket, "create_connection", interdit)
+    for args in (("rappel", "3", "--appliquer"), ("rpc", "Load", "1"), ("stocker", "abc")):
+        monkeypatch.setattr(sys, "argv", ["dbx_hiqnet.py", args[0], "127.0.0.1", *args[1:]])
+        with pytest.raises(SystemExit):
+            dbx_hiqnet.main()
+
+
+def test_dbx_numero_preset_normalise(faux_dbx, monkeypatch, tmp_path):
+    assert lancer_dbx(faux_dbx, "stocker", "02", "--appliquer", monkeypatch=monkeypatch) == 0
+    assert "preset 2 ('TEST')" in (tmp_path / "ecritures.log").read_text(encoding="utf-8")
 
 
 def test_dbx_rappel_fait_un_instantane_complet(faux_dbx, monkeypatch, tmp_path):
@@ -400,10 +417,20 @@ def test_tipi_relecture_stricte(faux_tipi, monkeypatch, tmp_path):
     assert lancer_tipi(faux_tipi, "set", "Out1/Gain", "-3.0dB", "--appliquer", monkeypatch=monkeypatch) == 0
     assert lancer_tipi(faux_tipi, "set", "Out2/Gain", "-3.0dB", "--appliquer", monkeypatch=monkeypatch) != 0
     assert "ECART" in (tmp_path / "ecritures.log").read_text(encoding="utf-8")
+    assert list((tmp_path / "instantanes").glob("*tipi-avant-set.json"))
+
+
+def test_tipi_pas_maximum(faux_tipi, monkeypatch):
+    _FauxTipi.valeurs["Out1/Gain"] = "0.0dB"
+    assert lancer_tipi(faux_tipi, "set", "Out1/Gain", "+15dB", monkeypatch=monkeypatch) != 0     # même en simulation
+    assert lancer_tipi(faux_tipi, "set", "Out1/Gain", "+3dB", monkeypatch=monkeypatch) == 0
+    assert linea_tipi.controle_pas("Out1/Delay", "1.0ms", "1.6ms") and not linea_tipi.controle_pas("Out1/Delay", "1ms", "1.5ms")
+    assert linea_tipi.relu_conforme("15000Hz", "15kHz")
 
 
 def _osm(monkeypatch, *args):
     envoye = []
+    monkeypatch.setattr(osm_client, "journaliser", lambda t: None)
     monkeypatch.setattr(osm_client, "ecouter", lambda duree=5.0: {"1.2.3.4": {"generator": "uuid-gen"}})
     monkeypatch.setattr(osm_client, "requete", lambda hote, objet, timeout=5.0: envoye.append(objet) or {"ok": 1})
     code = code_sortie(osm_client.main, ["osm_client.py", "generateur", "1.2.3.4", *args], monkeypatch)
@@ -414,11 +441,13 @@ def test_osm_generateur_niveau_impose(monkeypatch):
     for args in (("--on", "--appliquer"),                          # niveau mémorisé inconnu
                  ("--on", "--off", "--gain", "-30", "--appliquer"),
                  ("--on", "--gain", "-6", "--appliquer"),         # trop fort
+                 ("--on", "--gain", "nan", "--appliquer"),        # NaN passait le test « > -10 »
+                 ("--on", "--gain=-inf", "--appliquer"),
                  ("--appliquer",)):                               # rien à faire
         code, envoye = _osm(monkeypatch, *args)
         assert code != 0 and envoye == []
     code, envoye = _osm(monkeypatch, "--on", "--gain", "-30", "--appliquer")
-    assert code == 0 and envoye[0]["data"] == {"gain": -30.0, "enabled": True}    # un seul message, gain compris
+    assert code == 0 and [e["data"] for e in envoye] == [{"gain": -30.0}, {"enabled": True}]   # gain AVANT allumage
     code, envoye = _osm(monkeypatch, "--off", "--appliquer")
     assert code == 0 and envoye[0]["data"] == {"enabled": False}
 

@@ -16,6 +16,8 @@ aucun réglage sans justification chiffrée. Donnée manquante → la demander �
 - `data/evenements/<fiche>.yaml` — lieu, disposition, public, style, réglementation (skill `fiche-evenement`).
 - `docs/processeurs.md` — ce que le kit sait piloter (réseau) ou non (saisie guidée).
 - `journal/ETAT.md` — état réel, réglages validés, questions ouvertes.
+- Règle ou valeur tirée d'un livre (Boyce, McCarthy, références bass-reflex) et absente de cette skill : la faire
+  sourcer par l'agent `documentaliste` (citation courte + page imprimée) avant de s'en servir, sans lire le livre ici.
 
 ## D'abord : quel type de système ?
 | Type (`type_systeme` dans la config) | Ce que Claude règle | Ce qu'il ne touche PAS |

@@ -38,6 +38,14 @@ from pathlib import Path
 
 PORT = 49007
 GAIN_GEN_MAX_DB = -10.0          # garde-fou : jamais de bruit au-dessus de -10 dBFS lancé par Claude
+GAIN_GEN_MIN_DB = -90.0
+JOURNAL = Path(__file__).resolve().parent.parent / "journal"
+
+
+def journaliser(t: str) -> None:
+    JOURNAL.mkdir(exist_ok=True)
+    with (JOURNAL / "ecritures.log").open("a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} OSM {t}\n")
 
 
 # ---------------- transport ----------------
@@ -278,23 +286,24 @@ def main():
         if a.on and a.gain is None:
             sys.exit(f"REFUS : --on exige --gain (≤ {GAIN_GEN_MAX_DB} dBFS). Le niveau mémorisé dans OSM est inconnu : "
                      "on impose toujours un niveau sûr avant d'allumer.")
-        if a.gain is not None and a.gain > GAIN_GEN_MAX_DB:
-            sys.exit(f"REFUS : gain {a.gain} dBFS > {GAIN_GEN_MAX_DB} dBFS. Monter à la main dans OSM si nécessaire.")
+        if a.gain is not None and not (GAIN_GEN_MIN_DB <= a.gain <= GAIN_GEN_MAX_DB):     # refuse aussi nan / inf
+            sys.exit(f"REFUS : gain {a.gain} dBFS hors de [{GAIN_GEN_MIN_DB} ; {GAIN_GEN_MAX_DB}] dBFS. "
+                     "Monter à la main dans OSM si nécessaire.")
         hello = ecouter(a.duree).get(hote)
         if not hello or hello.get("generator") in (None, "disable"):
             sys.exit("Générateur non pilotable : dans OSM, Remote > cocher « enable for remote ».")
-        data = {}
-        if a.gain is not None:
-            data["gain"] = a.gain          # même message que enabled : le niveau est imposé au moment de l'allumage
-        if a.on or a.off:
-            data["enabled"] = bool(a.on)
-        if not data:
+        # Deux messages successifs : le gain d'abord, l'allumage ensuite. Dans un seul objet JSON, l'ordre d'application
+        # des clés par OSM n'est pas garanti (QJsonObject trie « enabled » avant « gain »).
+        envois = ([{"gain": a.gain}] if a.gain is not None else []) + ([{"enabled": bool(a.on)}] if a.on or a.off else [])
+        if not envois:
             sys.exit("Rien à envoyer : préciser --gain, --on ou --off.")
         if not a.appliquer:
-            print(f"SIMULATION : générateur {data} (ajouter --appliquer, après accord de Louis : niveau sûr, personne exposé).")
+            print(f"SIMULATION : générateur {envois} (ajouter --appliquer, après accord de Louis : niveau sûr, personne exposé).")
             return
-        print(requete(hote, {"message": "update", "uuid": hello["generator"], "objectName": "GeneratorRemote",
-                             "name": "Claude", "data": data}))
+        for data in envois:
+            journaliser(f"GENERATEUR {hote} {data}")
+            print(requete(hote, {"message": "update", "uuid": hello["generator"], "objectName": "GeneratorRemote",
+                                 "name": "Claude", "data": data}))
 
 
 if __name__ == "__main__":

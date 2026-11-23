@@ -8,6 +8,9 @@ Systèmes déjà décrits : `ma-sono-actuel`, `ma-sono-refonte` (parc de Louis).
 
 ## Relecture / audit
 Pour relire le kit (humain ou IA) et laisser des notes : voir [`AUDIT.md`](AUDIT.md) (dossier `audits/`, issues GitHub).
+Deux agents Claude Code en lecture seule sont fournis dans [`.claude/agents/`](.claude/agents/) :
+- `controleur-securite` relit chaque modification sensible avant commit ;
+- `documentaliste` retrouve une valeur dans les livres de référence. Les textes de ces livres restent sur le PC (droit d'auteur).
 
 ## Installation (une fois)
 1. **Récupérer le dossier** : installer Google Drive pour ordinateur ; le dossier `calage-sono` apparaît dans

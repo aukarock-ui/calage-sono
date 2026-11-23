@@ -28,6 +28,14 @@ Python : utiliser `.venv\Scripts\python.exe` quand `.venv` existe (créé par `i
 - Pas maximum par écriture : EQ ±3 dB, délai ±0,5 ms, gain ±3 dB — puis remesurer.
 - Ne jamais lancer un signal de mesure sans que Louis ait confirmé que le niveau est sûr et que personne n'est exposé.
 
+## Agents (`.claude/agents/`) — à la demande, jamais en permanence
+- `controleur-securite` (lecture seule) : AVANT de committer une modification de `tools/` touchant une écriture ou une
+  protection, de `garde_fous`, de `calc_systeme` ou des configs. Lui passer un fichier diff (`git diff > <scratchpad>/x.diff`).
+  Pas pour la doc ni une correction triviale. Relire ses constats avant d'agir : c'est un avis, pas un ordre.
+- `documentaliste` (lecture seule, modèle économique) : sourcer un chiffre ou une règle dans Boyce, McCarthy, les références.
+- Matériel (écriture processeur, signal de mesure) : jamais par un agent, uniquement ici, avec le « go » de Louis.
+- Travail mécanique (mise en forme, conversion, brouillon) : opencode / Gemini (modèles gratuits), puis relecture.
+
 ## Fin de session
 - Mettre à jour `journal/ETAT.md` (système, événement, réglages validés, mesures, questions).
 - Nouveau composant ou processeur rencontré : l'ajouter à `data/materiel.yaml` (avec la source).

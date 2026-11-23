@@ -374,6 +374,10 @@ def journaliser(texte: str) -> None:
 def instantane_avant(d: "Dbx", ip: str, motif: str) -> Path:
     """Carte complète du processeur avant une opération globale (rappel, stockage) : permet de comparer/revenir."""
     t = d.carte()
+    n_val = len(aplatir(t))
+    if n_val < 20 or not any(k.startswith(("Limiter", "Crossover")) for k in t.get("\\\\Preset", {})):
+        raise ValueError(f"instantané incomplet ({n_val} valeurs, limiteurs/crossover absents) : opération annulée, "
+                         "rien n'a été envoyé. Vérifier la connexion (`carte`) avant de recommencer.")
     t["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds"), "motif": motif}
     out = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-{motif}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -440,6 +444,23 @@ def main() -> None:
             print(f"{k}\n    avant : {x}\n    après : {y}")
         return
 
+    besoin = {"rappel": 2, "stocker": 2, "rpc": 2, "set": 3, "get": 2, "ls": 2, "ecouter": 2}.get(a.cmd, 1)
+    if len(a.args) < besoin:
+        sys.exit(f"{a.cmd} : {besoin} argument(s) attendu(s) (voir --help).")
+    # Refus décidables sans l'appareil : AVANT toute connexion (aucune trame ne part pour une demande refusée).
+    if a.cmd in ("rappel", "stocker"):
+        if not re.fullmatch(r"\d{1,3}", a.args[1]) or not 1 <= int(a.args[1]) <= 100:
+            sys.exit(f"REFUS : numéro de preset invalide : {a.args[1]!r} (1 à 100).")
+        a.args[1] = str(int(a.args[1]))                      # « 05 » → « 5 », clé de Get presetName
+        if a.cmd == "rappel" and not a.protection_validee:
+            sys.exit("REFUS : un rappel de preset modifie aussi les PROTECTIONS (limiteurs, HPF, mutes). "
+                     "Validation explicite de Louis requise (--protection-validee).")
+    if a.cmd == "rpc" and a.args[1] not in RPC_LECTURE:      # liste blanche : la commande rpc ne fait que lire
+        sys.exit(f"REFUS : {a.args[1]} n'est pas une méthode de lecture connue ({', '.join(sorted(RPC_LECTURE))}). "
+                 "Rappel et stockage de presets : commandes « rappel » et « stocker » (instantané automatique) ; "
+                 + ("méthode irréversible : appli officielle seulement." if a.args[1] in RPC_INTERDITS else
+                    "autre écriture : non prise en charge."))
+
     ip = a.args[0]
     mdp = a.mdp or os.environ.get("DBX_MDP")
     if not mdp:
@@ -469,14 +490,8 @@ def main() -> None:
                 for k, v in sorted((r.get("result") or {}).items(), key=lambda t: int(t[0])):
                     print(f"{k}: {v}")
         elif a.cmd in ("rappel", "stocker"):
-            n = str(a.args[1])
-            if not re.fullmatch(r"\d{1,3}", n):
-                sys.exit(f"REFUS : numéro de preset invalide : {n!r}.")
+            n = a.args[1]                       # validé, normalisé et verrou vérifié AVANT la connexion
             rappel = a.cmd == "rappel"
-            # Un rappel remplace d'un coup filtres, limiteurs, gains et mutes : même verrou qu'un paramètre de protection.
-            if rappel and not a.protection_validee:
-                sys.exit("REFUS : un rappel de preset modifie aussi les PROTECTIONS (limiteurs, HPF, mutes). "
-                         "Validation explicite de Louis requise (--protection-validee).")
             if not a.appliquer:
                 print(f"SIMULATION : rappel du preset {n} (ajouter --appliquer). Couper les amplis ou muter avant un rappel."
                       if rappel else
@@ -485,7 +500,10 @@ def main() -> None:
             noms = {}
             for r in d.rpc("Get", ["1", "100", "presetName"]):
                 noms.update(r.get("result") or {})
-            snap = instantane_avant(d, ip, f"avant-{a.cmd}-{n}")
+            try:
+                snap = instantane_avant(d, ip, f"avant-{a.cmd}-{n}")
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}")
             print(f"Instantané complet avant {a.cmd} : {snap}")
             journaliser(f"{'RAPPEL' if rappel else 'STORE'} preset {n} ({noms.get(n, 'vide')!r}) sur {ip} "
                         f"[instantané {snap.name}]"
@@ -498,16 +516,20 @@ def main() -> None:
                 journaliser(f"ECHEC {a.cmd} preset {n} sur {ip} : {erreurs or 'aucune réponse'}")
                 sys.exit(f"ÉCHEC : {a.cmd} du preset {n} : {erreurs or 'aucune réponse'}. Comparer à l'instantané {snap}.")
             if rappel:
-                charge = d.get("\\\\Node\\Settings\\SV\\LoadedPresetName")
+                try:
+                    charge = d.get("\\\\Node\\Settings\\SV\\LoadedPresetName")
+                except ValueError as e:
+                    charge = None
+                    print(f"  relecture du preset chargé impossible ({e}) : vérifier à l'écran.")
                 print(f"  preset chargé (relu) : {charge}")
-                journaliser(f"RAPPEL preset {n} sur {ip} : chargé = {charge}")
+                journaliser(f"RAPPEL preset {n} sur {ip} : chargé = {charge} (attendu {noms.get(n)!r})")
+                print("  À FAIRE : relire les seuils de limiteur du preset chargé (`carte`) et les comparer aux plafonds "
+                      "calculés (calc_systeme) : un preset peut contenir des seuils plus hauts.")
+                if noms.get(n) and charge is not None and str(charge).strip() != str(noms[n]).strip():
+                    journaliser(f"ECART rappel preset {n} sur {ip} : chargé {charge!r}, attendu {noms[n]!r}")
+                    sys.exit(f"ÉCHEC : preset chargé « {charge} » au lieu de « {noms[n]} ». Comparer à l'instantané {snap}.")
         elif a.cmd == "rpc":
-            methode, params = a.args[1], a.args[2:]
-            if methode not in RPC_LECTURE:      # liste blanche : la commande rpc ne fait que lire
-                sys.exit(f"REFUS : {methode} n'est pas une méthode de lecture connue ({', '.join(sorted(RPC_LECTURE))}). "
-                         "Rappel et stockage de presets : commandes « rappel » et « stocker » (instantané automatique) ; "
-                         + ("méthode irréversible : appli officielle seulement." if methode in RPC_INTERDITS else
-                            "autre écriture : non prise en charge."))
+            methode, params = a.args[1], a.args[2:]   # liste blanche de lecture vérifiée avant la connexion
             print(json.dumps(d.rpc(methode, params), ensure_ascii=False, indent=1))
         elif a.cmd == "set":
             chemin, valeur = a.args[1], a.args[2]

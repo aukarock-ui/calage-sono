@@ -74,8 +74,29 @@ def methode_ecrivable(methode: str) -> bool:
 
 
 def nombre(t) -> float | None:
-    m = re.match(r"^\s*([+-]?\d+(?:\.\d+)?)", str(t or ""))
-    return float(m.group(1)) if m else None
+    """Valeur ramenée à l'unité de base (Hz, ms, dB) : « 15kHz » et « 15000Hz » donnent le même nombre."""
+    from garde_fous import nombre as n_unites          # même dossier tools/
+    v = n_unites(t)
+    if v is None:
+        m = re.match(r"^\s*([+-]?\d+(?:\.\d+)?)", str(t or ""))
+        v = float(m.group(1)) if m else None
+    return v
+
+
+# Pas maximum par écriture (CLAUDE.md) : au-delà, écrire en plusieurs fois et remesurer entre deux.
+PAS_MAX = (("Delay", 0.5), ("Gain", 3.0))          # ms ; dB (Gain, Eq1Gain, Eq2Gain…)
+
+
+def controle_pas(methode: str, avant: str | None, valeur: str) -> str | None:
+    """Raison du refus si l'écart demandé dépasse le pas maximum, sinon None."""
+    for suffixe, pas in PAS_MAX:
+        if methode.endswith(suffixe):
+            va, vn = nombre(avant), nombre(valeur)
+            if va is None or vn is None:
+                return f"valeur actuelle ou demandée illisible ({avant!r} → {valeur!r}) : pas maximum invérifiable"
+            if abs(vn - va) > pas + 1e-9:
+                return f"écart {vn - va:+g} au-delà du pas maximum ±{pas:g} par écriture : y aller par étapes en remesurant"
+    return None
 
 
 def relu_conforme(demande: str, relu: str) -> bool:
@@ -206,9 +227,15 @@ def main():
                 sys.exit("Méthode non supportée (ou verrouillée) : rien n'est envoyé.")
             if any(m in methode.lower() for m in PROTECTION) and not a.protection_validee:
                 sys.exit("REFUS : paramètre de PROTECTION / rappel de snapshot. Validation explicite de Louis requise (--protection-validee).")
+            motif = controle_pas(methode, avant if etat == "ok" else None, valeur)
+            if motif:
+                sys.exit(f"REFUS : {methode} : {motif}.")
             if not a.appliquer:
                 print("SIMULATION — rien n'a été écrit (ajouter --appliquer).")
                 return
+            snap = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-tipi-avant-set.json"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            snap.write_text(json.dumps({"ip": a.args[0], methode: avant}, ensure_ascii=False), encoding="utf-8")
             err = t.set(methode, valeur)
             etat_r, apres = t.get(methode)
             journaliser(f"SET {a.args[0]} {methode} {avant} -> {valeur} (relu {etat_r} {apres}) {err or ''}")

@@ -28,3 +28,22 @@
 | **P2 3.8** : VENU360 avec le mot de passe d'usine | Déjà averti | Changer le mot de passe sur la machine, `DBX_MDP`, réseau isolé |
 
 Corrigé en passant : les messages de refus (`sys.exit`) sortaient en cp1252 sur la console Windows. Tous les outils passent aussi stderr en UTF-8.
+
+## Relecture par l'agent `controleur-securite` (premier essai de l'agent, sur le diff fea2cf6..689e1c6)
+
+Constats vérifiés dans le code, puis corrigés, avec un test pour chacun (53 tests) :
+
+| Gravité | Constat | Correction |
+|---|---|---|
+| P1 | `generateur --gain nan` (ou `-inf`) passait le garde-fou : `nan > -10` vaut faux | Gain borné à [−90 ; −10] dBFS, ce qui refuse aussi nan et inf |
+| P1 (à vérifier) | Gain et allumage partaient dans un seul message JSON, sans garantie d'ordre côté OSM | Deux messages successifs, gain d'abord ; chaque envoi est journalisé |
+| P2 | TIPI : pas de pas maximum par écriture (règle ±3 dB / ±0,5 ms), pas d'instantané | `controle_pas` refuse au-delà, même en simulation ; instantané avant l'écriture |
+| P2 | Rappel dbx : le preset chargé n'était pas comparé au preset demandé | Comparaison du nom : ECART et code 1. Avertissement de relire les seuils du preset chargé |
+| P2 | Instantané avant rappel ou stockage : pouvait être vide sans bloquer | Refus si moins de 20 valeurs ou sans limiteur ni crossover |
+| P3 | Numéro de preset « 05 » pas normalisé ; refus décidés après la connexion | Normalisé (1 à 100) ; refus de rappel, stocker et rpc avant toute connexion |
+| P3 | TIPI : « 15000Hz » relu « 15kHz » donnait un faux écart | Comparaison des unités via `garde_fous.nombre` |
+
+Non retenus pour l'instant (P3) :
+- `PresetRecallList` dans la liste de lecture : elle vient de la liste « lecture » de l'appli dbx. À confirmer sur l'appareil.
+- Faire stocker la valeur lue d'OutputGain plutôt qu'un simple booléen.
+- Confirmation du 0 dBFS pour le DCX2496.
