@@ -78,7 +78,10 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         alertes.append("DANGER : voie bass-reflex sans HPF renseigné (crossover." + v["nom"] + ".hpf) — "
                        "HPF obligatoire sous l'accord de l'évent ; le relever ou le régler AVANT toute mise en puissance.")
     z_hp = hp["impedance_nominale_ohm"]
-    n_s, n_p = v["hp_en_serie"], v["branches_paralleles"]
+    n_s, n_p = v.get("hp_en_serie"), v.get("branches_paralleles")
+    if not (isinstance(n_s, int) and isinstance(n_p, int) and n_s >= 1 and n_p >= 1):
+        return {"voie": v["nom"], "sortie": v.get("sortie"), "hp": v["hp"], "nb_hp": "?",
+                "alertes": [f"hp_en_serie / branches_paralleles invalides ({n_s} / {n_p}) : entiers ≥ 1 attendus."]}
     z_charge = z_hp * n_s / n_p
     n_hp = n_s * n_p
 
@@ -131,6 +134,7 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         res["alertes"] = alertes
         return res
     gain_eff = gain + (BRIDGE_DB if mode == "bridge" else 0)
+    v_lim = v_bornes   # tension visée par le limiteur (abaissée à l'écrêtage ampli s'il est plus bas)
     if mode == "bridge":
         alertes.append(f"{amp_nom} en bridge : gain pris à {gain_eff:.1f} dB (canal +6,02) — CONFIRMER au voltmètre.")
 
@@ -142,13 +146,15 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         res["v_ampli_max_v"] = round(v_clip, 1)
         res["marge_ampli_db"] = round(20 * math.log10(v_clip / v_bornes), 1)
         if v_clip < v_bornes:
-            alertes.append("L'ampli écrête AVANT la tension cible : le seuil doit suivre l'ampli (clip), pas le HP.")
+            alertes.append(f"L'ampli écrête AVANT la tension cible ({v_clip:.1f} V < {v_bornes:.1f} V) : seuil calculé "
+                           "sur la tension d'écrêtage de l'ampli, pas sur celle du HP.")
+            v_lim = v_clip
         if amp_nom == "QSC_PL380" and mode == "bridge":
             alertes.append("PL380 bridge : puissances constructeur en burst — marge réelle continue plus faible.")
     else:
         alertes.append(f"{amp_nom} : pas de puissance constructeur à {z_charge} Ω en mode {mode}.")
 
-    dbu_proc = dbu(v_bornes) - gain_eff
+    dbu_proc = dbu(v_lim) - gain_eff
     res["gain_ampli_effectif_db"] = round(gain_eff, 2)
     res["dbu_sortie_processeur"] = round(dbu_proc, 1) + 0.0
 

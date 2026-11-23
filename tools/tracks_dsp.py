@@ -236,14 +236,18 @@ def construire_ecriture(ch: int, param: str, v: list, cfg: bytes, n_in: int, k: 
         return bytes([0x38, ch]) + P(delai_enc(float(v[0]))), False
     if param == "peq":
         b, g, f, q = int(v[0]), float(v[1]), float(v[2]), float(v[3])
+        if not 1 <= b <= 9: raise ValueError("bande PEQ hors plage 1…9")
+        if len(v) > 4 and v[4] not in TYPES_PEQ: raise ValueError(f"type PEQ inconnu ({v[4]}) : {', '.join(TYPES_PEQ)}")
         typ = TYPES_PEQ.index(v[4]) if len(v) > 4 else 0
         return bytes([0x33, ch, b - 1]) + P(peqg_enc(g), freq_enc(f)) + bytes([q_enc(q), typ, 0]), False
     if param in ("hpf", "lpf"):
-        pente = PENTES.index(v[1].upper().replace("-", "").replace("BYPASS", "bypass"))
+        nom_pente = v[1].upper().replace("-", "").replace("BYPASS", "bypass")
+        if nom_pente not in PENTES: raise ValueError(f"pente inconnue ({v[1]}) : {', '.join(PENTES)}")
+        pente = PENTES.index(nom_pente)
         return bytes([0x32 if param == "hpf" else 0x31, ch]) + P(freq_enc(float(v[0]))) + bytes([pente]), True
     if param == "limiteur":
-        atk, rel, res = u16(o + x + 70), u16(o + x + 72), u16(o + x + 74)   # attaque/release conservés
-        return bytes([0x3F, ch]) + P(atk, rel, res, seuil_enc(float(v[0]))), True
+        atk, rel, r3 = u16(o + x + 70), u16(o + x + 72), u16(o + x + 74)   # attaque/release conservés
+        return bytes([0x3F, ch]) + P(atk, rel, r3, seuil_enc(float(v[0]))), True
     if param == "polarite":
         return bytes([0x36, ch, 1 if v[0].lower().startswith("inv") else 0]), True
     if param == "mute":

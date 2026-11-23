@@ -146,7 +146,7 @@ class REW:
         self.post("/alignment-tool/command", {"command": commande, "frequency": float(fc)})
         r = self.attendre_process("/alignment-tool/result", commande)
         v = r["results"]["0"]
-        return {"mode": mode, "delai_b_ms": float(v["Delay B ms"]), "inverser_b": v["Invert B"] == "true",
+        return {"mode": mode, "delai_b_ms": float(v["Delay B ms"]), "inverser_b": str(v["Invert B"]).strip().lower() == "true",
                 "fc_hz": float(v["Alignment frequency"])}
 
     def aligner(self, a, b, fc: float, plage_ms: float = 10.0) -> dict:
