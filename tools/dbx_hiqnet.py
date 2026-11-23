@@ -60,6 +60,48 @@ CHEMINS_INTERDITS = ("password", "reboot", "\\node\\config\\sv\\command")
 RPC_LECTURE = {"Get", "GetInputRouterSourceNames", "PresetIsModified", "PresetRecallList"}
 RPC_INTERDITS = {"FactoryRestore", "BuildDB", "CopyPresets", "StorePresetFiles", "WizardChoicesDefault", "Delete", "DeletePreset"}
 CARTE = Path(__file__).resolve().parent.parent / "data" / "venu360_parametres.yaml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from garde_fous import nombre, refuser_controle, verifier_plafond   # noqa: E402
+
+# Préfixe d'instance -> section de la carte ; préfixe de paramètre multi-canal retiré avant recherche
+_SECTIONS = (("CrossoverIIR", "crossover", r"^(Band_\d+_|Sub_)"), ("PEQOut", "peq_sortie", r"^Band_\d+_"),
+             ("Limiter", "limiteur", None), ("DelayOut", "delai_sortie", None),
+             ("OutputGains", "gains", r"^Channel_\d+_"), ("ZoneGains", "gains", r"^Channel_\d+_"))
+
+
+def regle_carte(chemin: str) -> dict | None:
+    """Règle (min/max/enum) de data/venu360_parametres.yaml pour un chemin « \\\\Preset\\<Instance>\\SV\\<Param> »."""
+    m = re.match(r"^\\\\Preset\\([A-Za-z]+)\d*\\SV\\(\w+)$", chemin)
+    if not m:
+        return None
+    import yaml
+    carte = yaml.safe_load(CARTE.read_text(encoding="utf-8"))
+    for prefixe, section, multi in _SECTIONS:
+        if m.group(1) == prefixe:
+            sec = carte.get(section) or {}
+            param = m.group(2)
+            if multi and re.match(multi, param):
+                return (sec.get("par_bande") or sec).get(re.sub(multi, "", param))
+            return sec.get(param) or (sec.get("par_bande") or {}).get(param)
+    return None
+
+
+def valider_valeur(chemin: str, valeur: str) -> str | None:
+    """None si la valeur respecte la carte ; sinon le motif du refus. Chemin hors carte : motif aussi."""
+    r = regle_carte(chemin)
+    if r is None:
+        return "chemin absent de la carte VENU360 (data/venu360_parametres.yaml)"
+    if "enum" in r:
+        permis = [str(x) for x in r["enum"]] + (["0", "1"] if "Mute" in chemin else [])
+        return None if valeur.strip().lower() in [x.lower() for x in permis] else f"valeur hors liste {permis}"
+    lo, hi, v = nombre(r.get("min")), nombre(r.get("max")), nombre(valeur)
+    if v is None:
+        if str(valeur).strip().lower() == "out" and "Frequency" in chemin:
+            return None
+        return f"valeur illisible « {valeur} » (nombre + unité attendus, ex. {r.get('exemple') or r.get('min')})"
+    if (lo is not None and v < lo) or (hi is not None and v > hi):
+        return f"hors plage {r.get('min')}…{r.get('max')}"
+    return None
 XO_PARAMS = ("HPFrequency", "HPType", "LPFrequency", "LPType", "Gain", "Polarity", "Phase")
 LIM_PARAMS = ("Limiter", "Threshold", "OverEasy", "Auto", "Attack", "Hold", "Release", "PeakStopPlus", "OvershootDb")
 PEQ_BANDE = ("Type", "Frequency", "Gain", "Q", "Slope")
@@ -89,6 +131,7 @@ class Dbx:
                 self.sock = None
 
     def _envoyer(self, ligne: str) -> None:
+        refuser_controle(ligne)              # une entrée ne doit jamais produire deux lignes de protocole
         if self.verbose:
             print(f">> {ligne}", file=sys.stderr)
         assert self.sock
@@ -361,6 +404,10 @@ def main() -> None:
     ap.add_argument("--appliquer", action="store_true", help="autorise l'écriture (sinon simulation)")
     ap.add_argument("--protection-validee", action="store_true", help="Louis a validé l'écriture d'un paramètre de protection")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--config", help="config système (data/configs/…yaml) : plafond des seuils de limiteur")
+    ap.add_argument("--voie", help="nom de la voie dans la config (ex. SUB)")
+    ap.add_argument("--depasser-plafond", action="store_true", help="dérogation explicite de Louis, journalisée")
+    ap.add_argument("--hors-carte", action="store_true", help="écrire un chemin absent de la carte (vérifié par get)")
     # valeurs négatives (« -2.0dB ») : les protéger d'argparse
     argv = [("\x00" + t) if re.match(r"^-\d", t) else t for t in sys.argv[1:]]
     a = ap.parse_args(argv)
@@ -428,6 +475,21 @@ def main() -> None:
             chemin, valeur = a.args[1], a.args[2]
             if any(m in chemin.lower() for m in CHEMINS_INTERDITS):
                 sys.exit("REFUS : chemin système (mot de passe, reboot, commande de config).")
+            try:
+                refuser_controle(chemin, valeur)
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}")
+            motif = valider_valeur(chemin, valeur)
+            if motif and not (a.hors_carte and motif.startswith("chemin absent")):
+                sys.exit(f"REFUS : {chemin} = {valeur} : {motif}."
+                         + (" Chemin non cartographié : --hors-carte après vérification par get." if motif.startswith("chemin absent") else ""))
+            note_plafond = None
+            if re.search(r"\\Limiter\d*\\SV\\Threshold$", chemin, re.I):
+                try:
+                    note_plafond = verifier_plafond(nombre(valeur), a.config, a.voie, "dBFS", a.depasser_plafond)
+                except ValueError as e:
+                    sys.exit(f"REFUS : {e}")
+                print(f"  {note_plafond}")
             avant = d.get(chemin)
             print(f"{chemin}\n  actuel : {avant}\n  demandé : {valeur}")
             if est_protection(chemin) and not a.protection_validee:
@@ -440,13 +502,18 @@ def main() -> None:
             snap.write_text(json.dumps({chemin: avant}, ensure_ascii=False), encoding="utf-8")
             r = d.set(chemin, valeur)
             apres = d.get(chemin)
-            journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]")
+            journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]"
+                        + (f" [{note_plafond}]" if note_plafond else "") + (" [HORS CARTE]" if motif else ""))
             print(f"  relu : {apres}")
-            norm = lambda x: re.sub(r"[\s]", "", str(x or "")).lower()
-            if norm(apres) != norm(valeur):
-                print(f"  ATTENTION : la valeur relue ({apres}) diffère de la demande ({valeur}) — arrondi au pas, "
-                      "unité mal écrite ou valeur hors plage bornée par l'appareil. Vérifier avant de continuer.")
+            vn, an = nombre(valeur), nombre(apres)
+            if vn is not None and an is not None:
+                ok = abs(vn - an) <= max(0.051, abs(vn) * 0.005)      # arrondi d'affichage / pas de l'appareil
+            else:
+                ok = re.sub(r"\s", "", str(apres or "")).lower() == re.sub(r"\s", "", str(valeur)).lower()
+            if not ok:
                 journaliser(f"ECART {ip} {chemin} : demandé {valeur}, relu {apres}")
+                sys.exit(f"ÉCHEC : la valeur relue ({apres}) ne correspond pas à la demande ({valeur}). "
+                         "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage).")
 
 
 if __name__ == "__main__":

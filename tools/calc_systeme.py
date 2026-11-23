@@ -14,7 +14,9 @@ Formules (méthode §2, §5, §8) :
   dBu = 20 log10(V / 0.775)
   Gain bridge = gain canal + 20 log10(2) (= +6,02 dB)   -> À CONFIRMER au voltmètre
   dBu sortie processeur = dBu bornes - gain ampli
-  Seuil Venu360 (dBFS) = dBu sortie processeur - dBu(0 dBFS) du réglage de sortie
+  Seuil Venu360 (dBFS) = dBu sortie processeur - dBu(0 dBFS) du réglage de sortie - overshoot (coussin dbx)
+  Calcul THÉORIQUE (impédance nominale, puissance de référence) : ni impédance complexe, ni affaissement
+  d'alimentation, ni compression thermique, ni excursion. À confirmer par mesure (tension, gain, excursion).
   c (m/s) = 331,3 + 0,606 x T(°C) ; délai (ms) = d / c x 1000
 """
 from __future__ import annotations
@@ -22,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -61,6 +64,59 @@ def puissance_reference(hp: dict) -> tuple[float | None, str]:
     return None, "inconnue"
 
 
+def filtres_voie(cfg: dict, nom: str) -> tuple[dict, str | None]:
+    """Filtres d'une voie : section `crossover` (en service) sinon `dsp_depart` (proposition avant mesure)."""
+    for section in ("crossover", "dsp_depart"):
+        f = (cfg.get(section) or {}).get(nom)
+        if f:
+            return f, section
+    return {}, None
+
+
+def _hz(texte) -> float | None:
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(k?)Hz", str(texte or ""), re.I)
+    return float(m.group(1).replace(",", ".")) * (1000 if m.group(2) else 1) if m else None
+
+
+def controle_hpf_bass_reflex(v: dict, cfg: dict) -> list[str]:
+    """Bass-reflex : sous l'accord, plus de charge acoustique → excursion libre. HPF obligatoire (méthode §1).
+    Contrôle de cohérence seulement : ne certifie pas Xmax (il faudrait un modèle de caisse et des T/S validés)."""
+    charge = str(v.get("charge") or "")
+    if not re.search(r"reflex|\bBR\b", charge, re.I):
+        return []
+    f, section = filtres_voie(cfg, v["nom"])
+    hpf = _hz(f.get("hpf")) if f.get("hpf") else None
+    fb = v.get("accord_event_hz") or _hz(re.search(r"accord[^,;)]*", charge, re.I).group(0)
+                                         if re.search(r"accord", charge, re.I) else None)
+    if not f.get("hpf"):
+        return [f"DANGER : voie bass-reflex sans HPF renseigné ({section or 'crossover'}.{v['nom']}.hpf) — HPF obligatoire "
+                "sous l'accord de l'évent ; le relever ou le régler AVANT toute mise en puissance."]
+    if hpf is None:
+        return [f"HPF bass-reflex « {f.get('hpf')} » illisible (fréquence) : le relever avec sa pente."]
+    a = []
+    if fb is None:
+        a.append(f"Accord d'évent inconnu : HPF {hpf:g} Hz non comparable à l'accord (mesure d'impédance à faire).")
+    elif hpf < fb:
+        a.append(f"HPF {hpf:g} Hz sous l'accord {fb:g} Hz ({f.get('hpf')}) : énergie résiduelle sous l'accord — "
+                 "valider l'excursion par modèle de caisse ou mesure avant pleine puissance.")
+    if section == "dsp_depart":
+        a.append("Filtres lus dans dsp_depart (proposition avant mesure), pas dans le crossover en service.")
+    return a
+
+
+def plafond_limiteur(chemin_config: str, nom_voie: str) -> dict:
+    """Seuil de limiteur calculé pour une voie (le plus haut autorisé) et son unité. Lève ValueError si non calculable."""
+    mat, cfg = charger(chemin_config)
+    voies = {v["nom"]: v for v in cfg["voies"]}
+    if nom_voie not in voies:
+        raise ValueError(f"voie « {nom_voie} » absente de {chemin_config} : {', '.join(voies)}")
+    r = calc_voie(voies[nom_voie], mat, cfg)
+    if r.get("seuil_limiteur") is None:
+        raise ValueError(f"seuil non calculable pour {nom_voie} : " + " / ".join(r.get("alertes", [])))
+    return {"seuil": r["seuil_limiteur"], "unite": r.get("unite_seuil"), "processeur": cfg.get("processeur"),
+            "alertes": r.get("alertes", [])}
+
+
 def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
     alertes: list[str] = []
     tv = v.get("type") or cfg.get("type_systeme") or "composants"
@@ -72,11 +128,7 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         return {"voie": v["nom"], "sortie": v.get("sortie"), "hp": v.get("hp") or "?", "nb_hp": "?",
                 "alertes": [f"HP « {v.get('hp')} » absent de la bibliothèque : l'ajouter depuis sa fiche (skill nouveau-systeme)."]}
     hp = mat["haut_parleurs"][v["hp"]]
-    # Bass-reflex : sous l'accord, plus de charge acoustique → excursion libre. HPF obligatoire (méthode §1).
-    filtres = (cfg.get("crossover") or {}).get(v["nom"]) or {}
-    if "reflex" in str(v.get("charge") or "").lower() and not filtres.get("hpf"):
-        alertes.append("DANGER : voie bass-reflex sans HPF renseigné (crossover." + v["nom"] + ".hpf) — "
-                       "HPF obligatoire sous l'accord de l'évent ; le relever ou le régler AVANT toute mise en puissance.")
+    alertes += controle_hpf_bass_reflex(v, cfg)
     z_hp = hp["impedance_nominale_ohm"]
     n_s, n_p = v.get("hp_en_serie"), v.get("branches_paralleles")
     if not (isinstance(n_s, int) and isinstance(n_p, int) and n_s >= 1 and n_p >= 1):

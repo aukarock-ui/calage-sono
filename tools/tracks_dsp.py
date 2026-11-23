@@ -54,6 +54,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from garde_fous import verifier_plafond  # noqa: E402
+
 PORT = 9761
 RACINE = Path(__file__).resolve().parent.parent
 JOURNAL = RACINE / "journal"
@@ -69,9 +72,13 @@ def gain_enc(db):
     if not -60 <= db <= 12: raise ValueError("gain hors plage −60…+12 dB")
     return round((db + 60) * 2) if db < -20 else round(80 + (db + 20) * 10)
 def freq_dec(r): return 19.70 * (20160 / 19.70) ** (r / 300)
-def freq_enc(hz): return max(0, min(300, round(300 * math.log(hz / 19.70) / math.log(20160 / 19.70))))
+def freq_enc(hz):
+    if not 19.7 <= hz <= 20160: raise ValueError(f"fréquence {hz} Hz hors plage 19,7…20 160 Hz")
+    return max(0, min(300, round(300 * math.log(hz / 19.70) / math.log(20160 / 19.70))))
 def q_dec(r): return 0.4 * 320 ** (r / 100)
-def q_enc(q): return max(0, min(100, round(100 * math.log(q / 0.4) / math.log(320))))
+def q_enc(q):
+    if not 0.4 <= q <= 128: raise ValueError(f"Q {q} hors plage 0,4…128")
+    return max(0, min(100, round(100 * math.log(q / 0.4) / math.log(320))))
 def peqg_dec(r): return (r - 120) / 10
 def peqg_enc(db):
     if not -12 <= db <= 12: raise ValueError("gain PEQ hors plage ±12 dB")
@@ -249,10 +256,39 @@ def construire_ecriture(ch: int, param: str, v: list, cfg: bytes, n_in: int, k: 
         atk, rel, r3 = u16(o + x + 70), u16(o + x + 72), u16(o + x + 74)   # attaque/release conservés
         return bytes([0x3F, ch]) + P(atk, rel, r3, seuil_enc(float(v[0]))), True
     if param == "polarite":
-        return bytes([0x36, ch, 1 if v[0].lower().startswith("inv") else 0]), True
+        x = v[0].lower()
+        if x not in ("normale", "normal", "inverse", "inversee", "inversée", "inverted"):
+            raise ValueError(f"polarité « {v[0]} » : normale ou inverse")
+        return bytes([0x36, ch, 1 if x.startswith("inv") else 0]), True
     if param == "mute":
-        return bytes([0x35, ch, 1 if v[0].lower() in ("oui", "on", "1", "yes") else 0]), True
+        x = v[0].lower()
+        if x not in ("oui", "on", "1", "yes", "non", "off", "0", "no"):
+            raise ValueError(f"mute « {v[0]} » : oui ou non")
+        return bytes([0x35, ch, 1 if x in ("oui", "on", "1", "yes") else 0]), True
     raise KeyError(param)
+
+
+def attendu_relecture(param: str, v: list, k: int) -> dict:
+    """Valeurs décodées attendues après écriture (valeur quantifiée), clés au format de aplatir(decoder_config)."""
+    b = f"sorties/{k}/"
+    if param == "gain":
+        return {b + "gain_db": gain_dec(gain_enc(float(v[0])))}
+    if param == "delai":
+        return {b + "delai_ms": round(delai_dec(delai_enc(float(v[0]))), 3)}
+    if param == "limiteur":
+        return {b + "limiteur/seuil_dbu": seuil_dec(seuil_enc(float(v[0])))}
+    if param == "polarite":
+        return {b + "polarite": "inverse" if v[0].lower().startswith("inv") else "normale"}
+    if param == "mute":
+        return {b + "mute": v[0].lower() in ("oui", "on", "1", "yes")}
+    if param in ("hpf", "lpf"):
+        return {b + f"{param}_hz": round(freq_dec(freq_enc(float(v[0]))), 1)}
+    if param == "peq":
+        n = int(v[0])
+        return {b + f"peq/{n}/gain_db": peqg_dec(peqg_enc(float(v[1]))),
+                b + f"peq/{n}/freq_hz": round(freq_dec(freq_enc(float(v[2]))), 1),
+                b + f"peq/{n}/q": round(q_dec(q_enc(float(v[3]))), 2)}
+    return {}
 
 
 def autotest():
@@ -267,6 +303,14 @@ def autotest():
     assert f == bytes([0x10, 2, 0, 2, 1, 0x10, 0x10, 3, 1 ^ 0 ^ 2 ^ 1 ^ 0x10])
     b = bytearray(b"\x00\x99" + trame(2, 0, b"\x10\x19") + trame(2, 0, b"\x01"))
     assert extraire(b) == b"\x10\x19" and extraire(b) == b"\x01"
+    for mauvais in (("polarite", ["inv3rse"]), ("mute", ["peut-etre"]), ("peq", ["10", "0", "100", "1"]),
+                    ("hpf", ["5", "LR24"]), ("peq", ["1", "0", "100", "0"])):
+        try:
+            construire_ecriture(0, mauvais[0], mauvais[1], bytes(928), 2, 1)
+            raise AssertionError(mauvais)
+        except ValueError:
+            pass
+    assert attendu_relecture("limiteur", ["8.5"], 2) == {"sorties/2/limiteur/seuil_dbu": 8.5}
     n_in, n_out, pages = MODELES["206"]
     assert 16 + 140 * n_in + (96 + 2 * n_in) * n_out + 16 + 2 * (n_in + n_out) == 928 == 18 * 50 + 28
     print("autotest t.racks : OK (codages, trame, cadrage, taille de config 206 = 928 octets)")
@@ -306,6 +350,9 @@ def main():
     ap.add_argument("-o", "--fichier")
     ap.add_argument("--appliquer", action="store_true")
     ap.add_argument("--protection-validee", action="store_true")
+    ap.add_argument("--config", help="config système (data/configs/…yaml) : plafond du seuil de limiteur")
+    ap.add_argument("--voie", help="nom de la voie dans la config (ex. SUB)")
+    ap.add_argument("--depasser-plafond", action="store_true", help="dérogation explicite de Louis, journalisée")
     argv = [("\x00" + t) if t[:1] == "-" and t[1:2].isdigit() else t for t in sys.argv[1:]]
     a = ap.parse_intermixed_args(argv)
     a.args = [t[1:] if t.startswith("\x00") else t for t in a.args]
@@ -348,7 +395,18 @@ def main():
             sys.exit(f"--sortie 1…{n_out} obligatoire")
         param, vals = a.args[1].lower(), a.args[2:]
         ch = n_in + a.sortie - 1
-        payload, prot = construire_ecriture(ch, param, vals, cfg, n_in, a.sortie)
+        try:
+            payload, prot = construire_ecriture(ch, param, vals, cfg, n_in, a.sortie)
+        except (ValueError, IndexError) as e:
+            sys.exit(f"REFUS : {e}")
+        note_plafond = None
+        if param == "limiteur":
+            try:
+                note_plafond = verifier_plafond(seuil_dec(seuil_enc(float(vals[0]))), a.config, a.voie, "dBu",
+                                                a.depasser_plafond)
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}")
+            print(f"  {note_plafond}")
         print(f"Out {a.sortie} {param} {' '.join(vals)}  → trame {payload.hex(' ')}")
         if prot and not a.protection_validee:
             sys.exit("REFUS : paramètre de PROTECTION. Validation explicite de Louis requise (--protection-validee).")
@@ -365,6 +423,20 @@ def main():
             f.write(f"{dt.datetime.now().isoformat(timespec='seconds')} TRACKS{d.modele} {a.args[0]} Out{a.sortie} {param} "
                     f"{vals} ack={ack.hex() if ack else None} relu={change}\n")
         print("ACK :", ack.hex() if ack else "AUCUN", "| relu :", change or "AUCUN CHANGEMENT")
+        if note_plafond:
+            with (JOURNAL / "ecritures.log").open("a", encoding="utf-8") as f:
+                f.write(f"{dt.datetime.now().isoformat(timespec='seconds')} TRACKS {note_plafond}\n")
+        ailleurs = {k: v for k, v in change.items() if not k.startswith(f"sorties/{a.sortie}/")}
+        if ailleurs:
+            print("ALERTE — d'autres canaux ont changé (lien ?) :", ailleurs)
+        ecarts = {k: (B.get(k), v) for k, v in attendu_relecture(param, vals, a.sortie).items()
+                  if not (B.get(k) == v or (isinstance(v, float) and isinstance(B.get(k), (int, float))
+                                            and abs(B.get(k) - v) < 1e-6))}
+        if ecarts:
+            with (JOURNAL / "ecritures.log").open("a", encoding="utf-8") as f:
+                f.write(f"{dt.datetime.now().isoformat(timespec='seconds')} TRACKS ECART relu/attendu {ecarts}\n")
+            sys.exit(f"ÉCHEC : relecture différente de la consigne {ecarts} (relu, attendu). Ne pas continuer.")
+        print("Vérifié : la relecture correspond à la consigne.")
     finally:
         d.fermer()
 

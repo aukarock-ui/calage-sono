@@ -11,7 +11,7 @@ Branchement (interface audio ≥ 2 entrées) :
 
 Usage :
   python tools/mesure_tf.py lister                                  # périphériques audio
-  python tools/mesure_tf.py mesurer --dev 3 --ref 1 --mic 2 --niveau -20 -o mesures/sub_pos1.npz
+  python tools/mesure_tf.py mesurer --dev 3 --ref 1 --mic 2 --niveau -20 -o mesures/sub_pos1.npz [--appliquer]
   python tools/mesure_tf.py analyser mesures/sub_pos1.npz [--bande 30 120]
   python tools/mesure_tf.py comparer mesures/sub.npz mesures/kick.npz --fc 55   # phase / sommation à Fc
   python tools/mesure_tf.py autotest                                 # vérifie les maths sur un système simulé
@@ -141,6 +141,8 @@ def main():
     ap.add_argument("--bande", type=float, nargs=2, default=[20, 20000])
     ap.add_argument("--fc", type=float)
     ap.add_argument("-o", "--sortie")
+    ap.add_argument("--appliquer", action="store_true",
+                    help="émettre réellement le sweep (après confirmation de Louis : routage, niveau, zone sûre)")
     a = ap.parse_args()
 
     if a.cmd == "autotest":
@@ -161,6 +163,15 @@ def main():
         return
     if a.niveau > -6:
         sys.exit("Niveau refusé (> -6 dBFS). Monter progressivement depuis -20 dBFS.")
+    if a.cmd == "mesurer":
+        if a.dev is None:
+            sys.exit("REFUS : --dev obligatoire (interface choisie explicitement, voir « lister »).")
+        print(f"Émission prévue : sweep {a.duree:g} s à {a.niveau:g} dBFS crête sur la sortie {a.sortie_canal} "
+              f"de l'interface {a.dev} ({a.bande[0]:g}–{a.bande[1]:g} Hz analysés).")
+        if not a.appliquer:
+            sys.exit("SIMULATION — aucun son émis. Avant --appliquer, Louis confirme : routage de la sortie "
+                     f"{a.sortie_canal} vers la bonne voie, gain ampli connu, protection HF en place, zone dégagée, "
+                     "niveau de départ sûr. Démarrer voie par voie, à -20 dBFS, puis +3 dB par pas.")
     x = sweep_log(duree=a.duree, fs=a.fs) * 10 ** (a.niveau / 20)
     x = np.concatenate([x, np.zeros(a.fs)])            # 1 s de queue pour la réverbération / le délai
     nout = a.sortie_canal

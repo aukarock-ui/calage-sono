@@ -84,11 +84,11 @@ json_rpc:    # {"id":"<uuid>_x","method":"<M>","params":[...]}
 # ---------------------------------------------------------------------
 reglages_appareil:   # \Node\Settings\SV\<Nom>  (InPreset=false : NE change PAS avec le rappel de preset)
   OutputGain:   # Output1Gain … Output6Gain = « analog output gain » de chaque sortie
-    chemin: "\\Node\Settings\SV\Output<1-6>Gain"
+    chemin: '\\Node\Settings\SV\Output<1-6>Gain'
     index: {0: "+4 dBu", 1: "+8 dBu", 2: "+12 dBu", 3: "+14 dBu", 4: "+17 dBu", 5: "+20 dBu", 6: "+22 dBu"}
     defaut: 2      # = +12 dBu en sortie d'usine (et NON +22)
     note: "Ordre des libellés lu dans l'exe (table « Gain | +4 dBu … +22 dBu »). Le format de la valeur renvoyée par get (index ou libellé) reste à confirmer sur la machine. L'assistant de configuration (Wizard) le règle selon l'ampli choisi."
-  InputGain:    {chemin: "\\Node\Settings\SV\Input<1-3>Gain", plage: [0, 3], defaut: 1, note: "libellés à confirmer"}
+  InputGain:    {chemin: '\\Node\Settings\SV\Input<1-3>Gain', plage: [0, 3], defaut: 1, note: "libellés à confirmer"}
   autres: [LoadedPresetID, LoadedPresetName, PresetIsModified, PresetPowerup, MutesPowerup, AESCh12Input, AESCh34Input,
            AESCh12SRC, AESCh34SRC, SampleRateReference, CurrentSampleRate, AESCh12Status, AESCh34Status, PresetRecallList]
 limiteur_confirmation_windows: "dbxVenuLimiter : Threshold -60…0 ; OverEasy 0…10 ; Attack 0,1…200 ms ; Hold 0…500 ms ; Release 5…360 ; PeakStopPlus défaut 1 (ON) ; OvershootDb 2…6, défaut 6 — identique à l'analyse Android."

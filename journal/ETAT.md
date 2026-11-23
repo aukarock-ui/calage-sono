@@ -3,6 +3,21 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-23 (suite 4) — Trois audits externes traités (Gemini, ChatGPT, audit approfondi) — voir `audits/`
+- Les garde-fous sont maintenant dans le code (`tools/garde_fous.py`) :
+  - **Plafond de limiteur** : écrire un seuil (dbx, DCX, t.racks) exige `--config` et `--voie`. Un seuil au-dessus du plafond de `calc_systeme.py` est refusé ; la dérogation `--depasser-plafond` est journalisée.
+  - **Relecture stricte** : un écart entre la valeur relue et la consigne donne un code de sortie non nul.
+  - **Valeurs** : plages, enums et booléens stricts ; plus aucun bornage silencieux. Pour dbx, la carte `venu360_parametres.yaml` sert de validateur ; un chemin inconnu est refusé sauf avec `--hors-carte`.
+  - **CR/LF** refusés sur le protocole dbx.
+- **Bug DCX corrigé** : une valeur sous le minimum était repliée vers le haut. −30 sur le seuil limiteur donnait −18 dB.
+- `mesure_tf.py mesurer` : rien n'est émis sans `--appliquer` et `--dev`.
+- `calc_systeme.py` :
+  - lit `dsp_depart` ;
+  - signale un HPF sous l'accord d'évent ;
+  - si l'ampli écrête avant la tension HP, le seuil est limité à sa tension d'écrêtage.
+- Hypothèse ouverte : 0 dB du limiteur DCX = 0 dBFS = +22 dBu. Le plafond DCX est vérifié en dBFS ; **voltmètre**.
+- Reste à faire (P2) : CI/pytest, venv dans `installer.ps1`, mot de passe dbx par variable d'environnement, LICENSE (décision de Louis), moyennes dans `mesure_tf.py`.
+
 ## 2026-11-23 (suite 3) — Manuels officiels (dossier Téléchargements) recoupés avec le kit
 - **VENU360** (manuel 5058681-C) : table 0 dBFS par réglage de sortie (p. 10) = celle du kit, confirmée. Limiteur −60…0,
   OverEasy, Auto, PeakStopPlus (OFF = détection RMS, ON = crête), OVERSHOOT 2–6 dB. La procédure dbx (p. 53-54) règle

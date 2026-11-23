@@ -32,6 +32,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from garde_fous import verifier_plafond  # noqa: E402
+
 RACINE = Path(__file__).resolve().parent.parent
 TABLE = json.loads((RACINE / "data" / "protocoles" / "dcx2496_parametres.json").read_text(encoding="utf-8"))
 JOURNAL = RACINE / "journal"
@@ -48,21 +51,32 @@ LIENS = ("Stereolink", "Stereolink Mode", "Delay Link", "Crossover Link")   # pa
 def code_valeur(p: dict, v):
     t = p["type"]
     if t == "bool":
-        return 1 if str(v).lower() in ("1", "true", "on", "oui", "yes") else 0
+        x = str(v).strip().lower()
+        if x in ("1", "true", "on", "oui", "yes"):
+            return 1
+        if x in ("0", "false", "off", "non", "no"):
+            return 0
+        raise ValueError(f"« {v} » : valeur booléenne attendue (on/off, oui/non, 1/0) pour {p['nom']}")
     if t == "enum":
         vals = [str(x) for x in p["valeurs"]]
         if str(v) in vals:
             return vals.index(str(v))
-        try:  # valeur numérique : plus proche dans la liste (ex. fréquence)
+        try:  # valeur numérique : plus proche dans la liste (ex. fréquence), seulement DANS la plage de la liste
             f = float(v)
             num = [(abs(float(x) - f), i) for i, x in enumerate(vals) if _est_nombre(x)]
             if num:
+                bornes = [float(x) for x in vals if _est_nombre(x)]
+                if not min(bornes) <= f <= max(bornes):
+                    raise ValueError(f"{v} hors plage {min(bornes):g}…{max(bornes):g} pour {p['nom']}")
                 return min(num)[1]
-        except ValueError:
-            pass
+        except ValueError as e:
+            if "hors plage" in str(e):
+                raise
         raise ValueError(f"« {v} » absent des valeurs de {p['nom']} : {vals[:8]}…")
-    n = round(abs(p["min"] - float(v)) / p["step"])
-    return n
+    f = float(v)
+    if not p["min"] <= f <= p["max"]:      # ancien code : |min − v| repliait une valeur sous le minimum vers le haut
+        raise ValueError(f"{v} hors plage {p['min']}…{p['max']} pour {p['nom']}")
+    return round((f - p["min"]) / p["step"])
 
 
 def decode_valeur(p: dict, n: int):
@@ -268,6 +282,9 @@ def main():
     ap.add_argument("--appliquer", action="store_true")
     ap.add_argument("--protection-validee", action="store_true")
     ap.add_argument("--lien-accepte", action="store_true", help="écrire malgré un lien stéréo/délai/crossover actif")
+    ap.add_argument("--config", help="config système (data/configs/…yaml) : plafond du seuil de limiteur")
+    ap.add_argument("--voie", help="nom de la voie dans la config (ex. SUB)")
+    ap.add_argument("--depasser-plafond", action="store_true", help="dérogation explicite de Louis, journalisée")
     argv = [("\x00" + t) if t[:1] == "-" and t[1:2].isdigit() else t for t in sys.argv[1:]]
     a = ap.parse_intermixed_args(argv)
     a.args = [t[1:] if t.startswith("\x00") else t for t in a.args]
@@ -309,9 +326,21 @@ def main():
         elif a.cmd == "set":
             nom, valeur = a.args[1], a.args[2]
             p, ch, num, idx = localiser(nom, a.entree, a.sortie, a.eq)
-            brut = code_valeur(p, valeur)
+            try:
+                brut = code_valeur(p, valeur)
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}")
+            attendu = decode_valeur(p, brut)
+            note_plafond = None
+            if p["nom"] == "Limiter Threshold":
+                # Hypothèse du kit : 0 dB du limiteur DCX = 0 dBFS = +22 dBu (À VÉRIFIER au voltmètre) → plafond en dBFS
+                try:
+                    note_plafond = verifier_plafond(float(attendu), a.config, a.voie, "dBFS", a.depasser_plafond)
+                except ValueError as e:
+                    sys.exit(f"REFUS : {e}")
+                print(f"  {note_plafond}")
             avant = decoder_etat(d.dump())
-            print(f"{nom} (canal {ch}, param {num}) -> {decode_valeur(p, brut)} {p.get('unite') or ''}")
+            print(f"{nom} (canal {ch}, param {num}) -> {attendu} {p.get('unite') or ''}")
             if any(m in nom.lower() for m in PROTECTION) and not a.protection_validee:
                 sys.exit("REFUS : paramètre de PROTECTION. Il faut la validation explicite de Louis (--protection-validee).")
             # Liens (aide officielle DCX-Remote, FAQ 8-11) : avec un lien stéréo actif, la valeur d'une sortie est
@@ -334,13 +363,27 @@ def main():
             time.sleep(0.3)
             apres = decoder_etat(d.dump())
             change = {k: (aplatir(avant).get(k), v) for k, v in aplatir(apres).items() if aplatir(avant).get(k) != v}
-            journaliser(f"SET canal {ch} param {num} {nom}={valeur} brut={brut} ; changements relus : {change}")
-            print("Relu après écriture :", change or "AUCUN CHANGEMENT — vérifier la connexion / le verrouillage du DCX")
+            journaliser(f"SET canal {ch} param {num} {nom}={valeur} brut={brut} ; changements relus : {change}"
+                        + (f" [{note_plafond}]" if note_plafond else ""))
+            print("Relu après écriture :", change or "AUCUN CHANGEMENT")
             cible = f"sorties/{a.sortie}/" if a.sortie else (f"entrees/{a.entree}/" if a.entree else "setup/")
             ailleurs = {k: v for k, v in change.items() if not k.startswith(cible)}
             if ailleurs:
                 journaliser(f"ALERTE propagation hors canal cible : {ailleurs}")
                 print("ALERTE — d'autres canaux ont changé (lien ?) :", ailleurs)
+            # Boucle fermée : la valeur relue du paramètre visé doit être la valeur quantifiée attendue
+            plat = aplatir(apres)
+            cles = [k for k in plat if k.startswith(cible) and k.endswith("/" + p["nom"])]
+            if a.eq is not None or len(cles) != 1:
+                print(f"  Vérification automatique impossible pour {nom} ({len(cles)} champ(s) trouvés) : contrôler à l'écran.")
+            else:
+                relu = plat[cles[0]]
+                ok = (abs(float(relu) - float(attendu)) < 1e-6) if _est_nombre(relu) and _est_nombre(attendu) \
+                    else str(relu) == str(attendu)
+                if not ok:
+                    journaliser(f"ECART {cles[0]} : attendu {attendu}, relu {relu}")
+                    sys.exit(f"ÉCHEC : {cles[0]} relu = {relu}, attendu {attendu}. Ne pas continuer avant de comprendre l'écart.")
+                print(f"  Vérifié : {cles[0]} = {relu}")
     finally:
         d.fermer()
 

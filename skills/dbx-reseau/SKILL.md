@@ -40,6 +40,9 @@ python tools/dbx_hiqnet.py set <ip> "<chemin>" "<valeur>"              # simulat
 python tools/dbx_hiqnet.py set <ip> "<chemin>" "<valeur>" --appliquer  # écrit, relit, journalise
 ```
 - Paramètre de protection (Limiter, Threshold, HPF, HPType, Polarity, Mute, PeakStop) : refus sans `--protection-validee`.
+- Seuil de limiteur : ajouter `--config data/configs/<système>.yaml --voie <NOM>`. Un seuil au-dessus du plafond calculé est refusé. `--depasser-plafond` n'est permis que sur décision explicite de Louis, et il est journalisé. Même règle dans `dcx2496.py` et `tracks_dsp.py`.
+- Valeur hors carte (`venu360_parametres.yaml`) : refusée. Pour un chemin inconnu : `--hors-carte`, après un `get` de confirmation.
+- Après l'écriture, la valeur relue doit correspondre à la consigne. Sinon : « ÉCHEC », code non nul, ne pas continuer.
 - Instantané automatique et log dans `journal/ecritures.log` à chaque écriture.
 - Toujours relire la valeur après écriture ; si la relecture diffère, s'arrêter et le signaler.
 - Mémoriser ensuite : `python tools/dbx_hiqnet.py stocker <ip> <n> --appliquer` (JSON-RPC Store, ÉCRASE le preset n ;
