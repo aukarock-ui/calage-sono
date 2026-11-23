@@ -72,6 +72,11 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
         return {"voie": v["nom"], "sortie": v.get("sortie"), "hp": v.get("hp") or "?", "nb_hp": "?",
                 "alertes": [f"HP « {v.get('hp')} » absent de la bibliothèque : l'ajouter depuis sa fiche (skill nouveau-systeme)."]}
     hp = mat["haut_parleurs"][v["hp"]]
+    # Bass-reflex : sous l'accord, plus de charge acoustique → excursion libre. HPF obligatoire (méthode §1).
+    filtres = (cfg.get("crossover") or {}).get(v["nom"]) or {}
+    if "reflex" in str(v.get("charge") or "").lower() and not filtres.get("hpf"):
+        alertes.append("DANGER : voie bass-reflex sans HPF renseigné (crossover." + v["nom"] + ".hpf) — "
+                       "HPF obligatoire sous l'accord de l'évent ; le relever ou le régler AVANT toute mise en puissance.")
     z_hp = hp["impedance_nominale_ohm"]
     n_s, n_p = v["hp_en_serie"], v["branches_paralleles"]
     z_charge = z_hp * n_s / n_p

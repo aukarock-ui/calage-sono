@@ -442,6 +442,11 @@ def main() -> None:
             apres = d.get(chemin)
             journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]")
             print(f"  relu : {apres}")
+            norm = lambda x: re.sub(r"[\s]", "", str(x or "")).lower()
+            if norm(apres) != norm(valeur):
+                print(f"  ATTENTION : la valeur relue ({apres}) diffère de la demande ({valeur}) — arrondi au pas, "
+                      "unité mal écrite ou valeur hors plage bornée par l'appareil. Vérifier avant de continuer.")
+                journaliser(f"ECART {ip} {chemin} : demandé {valeur}, relu {apres}")
 
 
 if __name__ == "__main__":

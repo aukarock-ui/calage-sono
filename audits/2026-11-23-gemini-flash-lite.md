@@ -1,5 +1,28 @@
-<!-- Audit brut de Gemini (gemini-flash-lite-latest, via proxy local), 2026-11-23. NON ENCORE VÉRIFIÉ par Claude : chaque remarque reste à confronter au code avant toute correction. -->
+# Audit du 2026-11-23 — Gemini (gemini-flash-lite-latest), deux passages, vérifié par Claude
 
+Gemini a fait deux passages (méthode et calculs, puis sécurité des outils). Flash et Pro n'étaient pas disponibles
+(quota gratuit ou surcharge). Ses remarques brutes suivent, après le tableau de vérification fait par Claude dans le code.
+
+## Vérification (Claude, 2026-11-23)
+| Remarque de Gemini | Verdict | Suite |
+|---|---|---|
+| SUB bass-reflex avec HPF `null` : pas d'alerte bloquante | **juste** | `calc_systeme.py` sort maintenant « DANGER : voie bass-reflex sans HPF » |
+| `dbx_hiqnet set` : pas de relecture après écriture | **faux** : la valeur est relue | elle n'était pas comparée → avertissement ajouté et ligne `ECART` dans le journal si la valeur relue diffère (testé sur le simulateur) |
+| `dbx_hiqnet set` : pas de bornes de plage | partiel | l'appareil borne lui-même ; l'écart est désormais signalé. Bornes côté kit (depuis `venu360_parametres.yaml`) : amélioration possible |
+| `tracks_dsp` : pas de bornes gain/délai/seuil | **faux** | bornes présentes (`raise ValueError`, l. 69-85) |
+| `tracks_dsp` : pas de relecture | **faux** | config relue et comparée (l. 356-363) |
+| `tracks_dsp` : seuil non croisé avec `calc_systeme` | amélioration valable | à faire : refuser un seuil au-dessus de la valeur calculée (règle de CLAUDE.md, appliquée aujourd'hui à la main) |
+| `tracks_dsp` : nombres négatifs mal lus | **faux** | l'autotest passe des valeurs négatives |
+| DCX : dump interrompu → appareil bloqué en « mode transmission » | non fondé | `3F 0C 00` active seulement les réponses, ce n'est pas un état bloquant ; la session a déjà un `finally` |
+| SM118/SM115 « RMS brochure » : appliquer un facteur 0,8 | **refusé** | facteur inventé ; la règle du kit reste : signaler et demander la norme ou mesurer |
+| Bridge : vérifier au voltmètre | déjà prévu | méthode §6 et alertes de `calc_systeme` |
+| SPL cohérent +20·log(n) : à nuancer | juste, mineur | déjà étiqueté « coh./incoh. » ; à documenter |
+| REW : plafonner la plage d'alignement à 50 ms | amélioration mineure | défaut 10 ms ; à voir |
+| Alignement « IR d'abord, phase ensuite » | validé par Gemini | — |
+
+---
+
+## Passage 1 (brut, premier essai)
 # Audit du 2026-11-23 — Ingénieur système senior (touring)
 
 Version relue : 2026-11-23 (Passe 1 : physique, calculs, méthode)
@@ -101,3 +124,97 @@ Périmètre : outils de pilotage réseau et série (`tools/dbx_hiqnet.py`, `tool
 Le kit présente une architecture de sécurité rigoureuse (principe de lecture seule par défaut, obligation du triptyque `--appliquer`, instantanés automatiques et journalisation dans `journal/ecritures.log`). Les garde-fous interdisant les écritures sans validation explicite (`--protection-validee`) sont bien en place. 
 
 Cependant, la robustesse du code Python face à des erreurs de saisie utilisateur (valeurs hors limites physiques du DSP) et la gestion des exceptions réseau/série (qui pourraient laisser un processeur dans un état transitoire ou bloqué) doivent être renforcées avant les premiers tests grandeur nature sur site.
+---
+
+## Passage 2 (brut, relance)
+# Audit du 2026-11-23 — Ingénieur système senior (touring) & relecteur Python
+
+Version relue : 2026-11-23 (kit complet)
+Périmètre : Physique, méthode de calage, scripts de calcul (`calc_systeme.py`), alignement et critères de mesure.
+
+## Remarques
+
+### 1. Prise en compte incorrecte de l'impédance dans le calcul de la tension cible du HP
+- Fichier : `tools/calc_systeme.py:101-103`
+- Gravité : erreur de résultat
+- Constat : Le script calcule la tension par HP en faisant `v_hp = math.sqrt(p_lim_hp * z_hp)` puis multiplie par le nombre de HP en série (`v_bornes = v_hp * n_s`). 
+- Justification : Mathématiquement, pour $n_s$ haut-parleurs identiques de résistance $R$ en série, l'impédance totale est $Z_{tot} = n_s \cdot R$. La tension totale aux bornes de l'association pour une puissance limite totale $P_{tot}$ est $\sqrt{P_{tot} \cdot Z_{tot}} = \sqrt{(n_s \cdot p_{lim\_hp}) \cdot (n_s \cdot R)} = n_s \cdot \sqrt{p_{lim\_hp} \cdot R}$. La formule actuelle calcule $n_s \cdot \sqrt{p_{lim\_hp} \cdot R}$, ce qui est numériquement équivalent. **Cependant**, utiliser $z_{hp}$ (impédance nominale unitaire) au lieu de l'impédance de la branche série $z_hp \cdot n_s$ dans la formule de puissance amène à un résultat erroné si l'on raisonne par HP individuel vs branche. Plus grave, le script calcule `z_charge = z_hp * n_s / n_p` mais utilise ensuite `z_hp` (et non `z_charge` ou la résistance équivalente de la branche) pour remonter à la tension, ce qui fonctionne par un concours de simplification algébrique, mais est peu robuste et source de confusion sur la tension par HP (`v_hp` représente en réalité la tension par étage et non par HP).
+- Correction proposée : Clarifier les variables dans `calc_voie` en calculant directement la tension totale aux bornes de la charge en fonction de `p_totale_voie_w` et `z_charge` : `v_bornes = math.sqrt(pct * p_ref * n_hp * z_charge)`.
+
+---
+
+### 2. Formule du SPL max théorique incohérente pour les sources multiples
+- Fichier : `tools/calc_systeme.py:109-110`
+- Gravité : amélioration (erreur de résultat prévisionnel)
+- Constat : Le script calcule le SPL max cohérent par `sens + 10 * log10(p_lim_hp) + 20 * log10(n_hp)`. Or, `n_hp` est le nombre *total* de haut-parleurs (série $\times$ parallèle).
+- Justification : Le terme `20 * log10(n_hp)` suppose un couplage parfaitement cohérent (sommation en tension, $+6\text{ dB}$ par doublement) de *tous* les haut-parleurs de la voie. Physiquement, cela n'est vrai qu'à basse fréquence pour des haut-parleurs regroupés dans un même volume acoustique (ou à entraxe inférieur à $\lambda/2$). Pour les branches parallèles distantes ou les configurations mixtes (ex: 4 caisses de kick séparées), le sommation haut-parleur par haut-parleur dans une même caisse est cohérente, mais entre caisses distinctes, elle devient rapidement incohérente ($+3\text{ dB}$) ou mixte selon la disposition spatiale.
+- Correction proposée : Dissocier le gain de couplage intra-caisse (série) et inter-caisses (parallèle), ou limiter l'application du $+20\log(n)$ aux seuls HP d'une même enceinte, en basculant à $+10\log$ pour le nombre de boîtes séparées.
+
+---
+
+### 3. Omission de la vérification de la tension maximale d'entrée (Clip) des amplificateurs
+- Fichier : `skills/methode-calage/SKILL.md` (section seuils) et `tools/calc_systeme.py`
+- Gravité : danger matériel / erreur de résultat
+- Constat : Le calcul détermine un niveau de sortie processeur (en dBu ou dBFS) basé uniquement sur le gain de l'ampli et la tension cible du HP. Il ne vérifie pas si le signal de sortie maximal du processeur dépasse la sensibilité d'entrée maximale (limite de surcharge/clip d'entrée) de l'amplificateur.
+- Justification : Par exemple, un QSC PL380 avec un gain sélectionné à 32 dB accepte un niveau d'entrée max de $+29\text{ dBu}$. Si le calcul demande un niveau de sortie processeur supérieur à $+29\text{ dBu}$ pour driver l'ampli à pleine puissance (ce qui arrive avec des gains d'ampli faibles comme 26 dB ou 32 dB sur des charges exigeantes), le processeur va écrêter en amont de l'ampli de manière invisible sur les voyants de l'ampli, ou l'ampli va saturer en entrée.
+- Correction proposée : Ajouter dans `calc_systeme.py` une vérification : si `dbu_sortie_processeur > ampli.get("entree_max_dbu", 22)` (ou valeur selon le gain de l'ampli), déclencher une alerte bloquante « Surcharge entrée amplificateur : risque d'écrêtage DSP/Ampli ».
+
+---
+
+### 4. Absence de garde-fou sur la latence induite par les filtres FIR/IIR croisés et le déphasage global
+- Fichier : `skills/methode-calage/SKILL.md` (étape 5 & 8)
+- Gravité : amélioration
+- Constat : La méthode impose l'alignement temporel (IR puis phase) sans mentionner la vérification de la latence totale ajoutée par le processeur et les choix de filtres (notamment si des filtres à phase linéaire ou des pentes raides > 48 dB/oct sont employées sur le VENU360 ou un processeur externe).
+- Justification : En live, une latence processeur excessive (> 5-10 ms) décale le retour scène/face ou perturbe le jeu des musiciens sur scène (monitoring). Le VENU360 a une latence fixe de 2,57 ms à 48 kHz, mais l'utilisation de certains blocs ou filtres lourds peut s'additionner.
+- Correction proposée : Ajouter dans l'étape 5 de la méthode un rappel sur le contrôle de la latence globale de processing du processeur utilisé.
+
+---
+
+### 5. Confusion potentielle sur l'unité du seuil du t.racks DSP 206 dans la bibliothèque
+- Fichier : `data/materiel.yaml` (lignes 118-125)
+- Gravité : erreur de résultat
+- Constat : Le matériel `TRACKS_DSP206` indique explicitement dans sa source une contradiction non résolue entre le manuel (+5 dBu max) et la mesure sur 408 (+20 dBu), avec un seuil de limiteur documenté en dBu (`-90` à `+20`).
+- Justification : Si le processeur attend du dBu réel mais que le script ou l'utilisateur y injecte une valeur calculée sans avoir tranché la pleine échelle au voltmètre, le limiteur fonctionnera complètement à côté de la plaque (soit totalement ouvert, soit mutant la voie en permanence). Le kit signale l'alerte dans le yaml mais le script `calc_systeme.py` ne traite pas spécifiquement le cas `unite_threshold: dBu` pour les processeurs dont la pleine échelle est ambigüe.
+- Correction proposée : Dans `calc_systeme.py`, si l'unité est `dBu` et qu'une incertitude de pleine échelle est signalée dans le dictionnaire du processeur, forcer une alerte critique bloquante dans le rapport Markdown.
+
+---
+
+## Avis général
+Le kit atteint un degré de maturité impressionnant pour un outil de touring indépendant. La rigueur apportée sur la distinction entre processeurs en dBFS, dBu, et la gestion du coussin d'overshoot des limiteurs dbx (PeakStopPlus) témoigne d'une excellente compréhension des pièges constructeurs réels. Les scripts sont propres et bien structurés. Les quelques remarques ci-dessus visent à sécuriser davantage les cas limites (notamment l'adéquation entre tension de sortie processeur et sensibilité d'entrée ampli).
+# Audit du 2026-11-23 — Ingénieur système son senior & relecteur Python
+
+Version relue : 2026-11-23 (Passe 2 : sécurité des outils de pilotage)
+Périmètre : `tools/dbx_hiqnet.py`, `tools/tracks_dsp.py`, `tools/dcx2496.py`, `tools/rew_client.py`
+
+## Remarques
+
+### 1. Absence de vérification des bornes de seuil du limiteur dans l'API TCP du dbx
+- Fichier : `tools/dbx_hiqnet.py:500` (`main` - commande `set`)
+- Gravité : danger matériel
+- Constat : La commande `set` accepte n'importe quelle chaîne de caractères comme valeur (`valeur = a.args[2]`), sans vérifier si un seuil de limiteur dépasse 0 dBFS ou une valeur destructrice pour les transducteurs, malgré la règle absolue « Jamais un seuil de limiteur au-dessus de la valeur calculée ».
+- Justification (calcul, source, manuel) : `CLAUDE.md` et `docs/processeurs.md` imposent que le seuil calculé par `calc_systeme.py` soit le plafond absolu. Un oubli de `--protection-validee` ou une erreur de saisie (`set \\\\Preset\\Limiter1\\SV\\Threshold "+3.0 dB"`) enverrait un seuil positif dans l'ampli, annihilant toute protection thermique et de crête.
+- Correction proposée : Valider et parser la valeur si le chemin contient `threshold`. Interdire toute valeur > 0.0 (dBFS) ou supérieure au seuil calculé de référence si transmis.
+
+### 2. Risque d'état partiel et absence de relecture/vérification de cohérence sur le DCX2496
+- Fichier : `tools/dcx2496.py:340` (`main` - commande `set`)
+- Gravité : erreur de résultat / danger matériel
+- Constat : L'outil envoie une trame SysEx unique via `d.ecrire([(ch, num, brut)])`, puis relit tout le dump et affiche les changements. Cependant, si le DCX rejette la trame (tampon saturé, verrouillage) ou l'applique partiellement en raison d'un lien stéréo non géré, aucune exception n'est levée et le script se termine avec un code de retour `0`.
+- Justification (calcul, source, manuel) : Le protocole SysEx du DCX2496 ne renvoie pas d'acquittement positif ou négatif sur le port RS-232. Si l'état relu ne correspond pas à la valeur demandée, le script doit lever une exception pour éviter de laisser un état partiel non validé sur le processeur.
+- Correction proposée : Après le dump de vérification, comparer la valeur relue avec `brut` (via `code_valeur`). Si le paramètre cible n'a pas pris la valeur exacte, lever `RuntimeError("Le DCX n'a pas appliqué le paramètre (verrouillage ou erreur de trame)")`.
+
+### 3. Absence de validation des plages de délais et gains sur les commandes set du t.racks DSP
+- Fichier : `tools/tracks_dsp.py:270` (`construire_ecriture`)
+- Gravité : danger matériel / erreur de résultat
+- Constat : La fonction `construire_ecriture` appelle les fonctions d'encodage (`gain_enc`, `delai_enc`, etc.) qui lèvent bien des `ValueError` si hors plage, mais les exceptions ne sont pas interceptées proprement dans `main()` pour afficher un message clair et stopper net l'exécution avant l'envoi réseau.
+- Justification (calcul, source, manuel) : Un dépassement de plage non intercepté provoque un plantage brut de l'interpréteur Python (stack trace) au lieu d'un refus explicite de l'outil, ce qui va à l'encontre des règles de sécurité des outils de tournée (CLAUDE.md).
+- Correction proposée : Dans `main()`, entourer l'appel à `construire_ecriture` et l'envoi par un bloc `try...except ValueError as e: sys.exit(f"ERREUR DE PLAGE : {e}")`.
+
+### 4. Absence de relecture après écriture sur le t.racks DSP lors d'un set
+- Fichier : `tools/tracks_dsp.py:340` (`main` - commande `set`)
+- Gravité : erreur de résultat
+- Constat : Le script envoie la trame de modification, récupère l'acquittement `ack`, puis décode la nouvelle config (`apres = decoder_config(...)`), mais ne vérifie pas explicitement si la valeur lue dans l'état décodé correspond à la valeur demandée.
+- Justification (calcul, source, manuel) : La règle absolue du kit exige une relecture après écriture. Si le DSP est occupé ou refuse la trame tout en renvoyant un acquittement générique `0x01`, le kit considère l'écriture comme réussie à tort.
+- Correction proposée : Vérifier dans le dictionnaire `change` que le paramètre modifié correspond bien à la valeur voulue à la tolérance près, sinon lever une erreur critique.
+
+## Avis général
+Le kit présente une architecture robuste avec une volonté claire de cloisonner les écritures (`--appliquer`, `--protection-validee`, instantanés automatiques). Les protocoles tiers (DCX, t.racks, dbx, REW) sont bien cernés. L'effort doit désormais porter sur le durcissement de la boucle fermée (validation stricte de la relecture post-écriture) pour garantir qu'aucune instruction n'est appliquée partiellement ou incorrectement sur le matériel en conditions réelles.
