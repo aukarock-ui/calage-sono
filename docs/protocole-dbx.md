@@ -91,3 +91,10 @@ Points importants tirés du code :
 2. Appli Android : FAIT le 22/11/2026 (v2.0.7). Pour une nouvelle version : récupérer base.apk + split_config.arm64_v8a.apk,
    extraire `libVENU360_*.so`, puis chercher les blocs XML `<ProcessingObject` (texte clair) et les flux zlib (ressources Qt).
    Cadre légal : rétro-ingénierie à des fins d'interopérabilité de son propre matériel (directive UE 2009/24/CE, art. 6).
+
+## Constats sur machine réelle (23/11/2026, firmware 2.0.5.0)
+- `set` ne renvoie jamais `error` : hors plage, la valeur est ramenée à la borne ; une valeur invalide est remplacée en silence (nombre illisible → borne haute, type de filtre inconnu → `BW 6`, virgule décimale → partie entière). Toujours relire.
+- Les listes de choix sont sensibles à la casse et à l'espace : `LR 24` est accepté, `LR24` et `lr 24` donnent `BW 6`.
+- `DelayOut<k>\SV\Amount` : écriture en `ms`, `m`, `ft` ou `s` ; la relecture vaut `<ms>ms/<ft>ft/<m>m` (pas 0,01 ms).
+- `\\Node\Settings\SV\Output<k>Gain` : écriture et relecture sous forme de libellé (`+22 dBu`) ; un index nu (`5`) est accepté (→ `+20 dBu`).
+- JSON-RPC `Load ["n"]` : réponse `- Load [3]: loaded sv settings`, de 8 à 18 s. Les instances changent avec la topologie (stéréo liée : instances impaires seulement).

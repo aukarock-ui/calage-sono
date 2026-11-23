@@ -163,6 +163,64 @@ def test_dbx_hors_plage_refuse(faux_dbx, monkeypatch):
                       "--config", CONFIG, "--voie", "SUB", monkeypatch=monkeypatch) != 0
 
 
+XO_TYPE = "\\\\Preset\\CrossoverIIR1\\SV\\Band_1_HPType"
+
+
+@pytest.mark.parametrize("valeur", ["lr 24", "LR24", "LR 96", "bw 6"])
+def test_dbx_liste_casse_exacte(valeur):
+    # Constaté sur VENU360 réel (23/11/2026) : toute valeur inconnue devient « BW 6 » sans erreur.
+    assert dbx_hiqnet.valider_valeur(XO_TYPE, valeur) is not None
+
+
+def test_dbx_liste_valeur_exacte_acceptee():
+    assert dbx_hiqnet.valider_valeur(XO_TYPE, "LR 24") is None
+    assert dbx_hiqnet.valider_valeur("\\\\Preset\\OutputGains\\SV\\Channel_1_Mute", "1") is None
+
+
+def test_dbx_virgule_decimale_refusee():
+    # L'appareil tronque « -12,5dB » en -12.0 dB.
+    assert dbx_hiqnet.valider_valeur(SEUIL, "-12,5dB") is not None
+    assert dbx_hiqnet.valider_valeur(SEUIL, "-12.5dB") is None
+
+
+@pytest.mark.parametrize("demande,relu,ok", [
+    ("1.5ms", "1.5ms/1.69ft/0.51m", True),         # format composé du délai
+    ("1.19ms", "1.19ms/1.34ft/0.41m", True),
+    ("1.5ms", "1.19ms/1.34ft/0.41m", False),
+    ("1234.5Hz", "1.23kHz", True),                  # arrondi d'affichage
+    ("-12.35dB", "-12.4dB", True),
+    ("-12.5dB", "-12.0dB", False),
+    ("LR 24", "LR 24", True),
+    ("LR 24", "BW 6", False),                       # remplacement silencieux
+    ("lr 24", "LR 24", False),                      # plus de comparaison insensible à la casse
+    ("Out", "Out", True),
+    ("-20dB", None, False),
+])
+def test_dbx_relecture_conforme(demande, relu, ok):
+    assert dbx_hiqnet.relecture_conforme(demande, relu) is ok
+
+
+MUTE = "\\\\Preset\\OutputGains\\SV\\Channel_1_Mute"
+
+
+def test_dbx_relecture_mute_1_0_seulement_sur_mute():
+    assert dbx_hiqnet.relecture_conforme("1", "On", MUTE)
+    assert dbx_hiqnet.relecture_conforme("0", "Off", MUTE)
+    assert not dbx_hiqnet.relecture_conforme("1", "Off", MUTE)
+    assert not dbx_hiqnet.relecture_conforme("1", "On", XO_TYPE)
+
+
+@pytest.mark.parametrize("valeur", ["out", "OUT", " Out", "LR 24 ", " -12.5dB"])
+def test_dbx_valeur_non_exacte_refusee(valeur):
+    chemin = SEUIL if "dB" in valeur else ("\\\\Preset\\CrossoverIIR1\\SV\\Band_1_HPFrequency" if "ut" in valeur.lower() else XO_TYPE)
+    assert dbx_hiqnet.valider_valeur(chemin, valeur) is not None
+
+
+def test_dbx_virgule_refusee_meme_hors_carte():
+    motif = dbx_hiqnet.valider_valeur("\\\\Preset\\Inconnu1\\SV\\X", "1,5")
+    assert motif is not None and "virgule" in motif
+
+
 def test_dbx_mot_de_passe_jamais_affiche(faux_dbx, monkeypatch, capsys):
     monkeypatch.setenv("DBX_MDP", "administrator")
     lancer_dbx(faux_dbx, "info", "-v", monkeypatch=monkeypatch)

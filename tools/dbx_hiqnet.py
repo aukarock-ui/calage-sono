@@ -90,20 +90,46 @@ def regle_carte(chemin: str) -> dict | None:
 
 def valider_valeur(chemin: str, valeur: str) -> str | None:
     """None si la valeur respecte la carte ; sinon le motif du refus. Chemin hors carte : motif aussi."""
+    # Le VENU360 ne renvoie jamais d'erreur : une valeur qu'il ne reconnaît pas est remplacée en silence
+    # (constaté le 23/11/2026). La chaîne validée doit donc être exactement celle envoyée.
+    if str(valeur) != str(valeur).strip():
+        return f"espace en début ou fin de valeur « {valeur} » : la valeur est envoyée telle quelle"
+    if "," in str(valeur):
+        # L'appareil tronque à la virgule (« -12,5dB » -> -12.0 dB) : point décimal obligatoire.
+        return f"virgule décimale refusée « {valeur} » : écrire avec un point (ex. -12.5dB)"
     r = regle_carte(chemin)
     if r is None:
         return "chemin absent de la carte VENU360 (data/venu360_parametres.yaml)"
     if "enum" in r:
+        # Comparaison EXACTE (casse et espaces) : valeur inconnue -> première de la liste (« lr 24 » -> « BW 6 »).
         permis = [str(x) for x in r["enum"]] + (["0", "1"] if "Mute" in chemin else [])
-        return None if valeur.strip().lower() in [x.lower() for x in permis] else f"valeur hors liste {permis}"
+        return None if valeur in permis else f"valeur hors liste {permis} (casse et espaces exacts)"
     lo, hi, v = nombre(r.get("min")), nombre(r.get("max")), nombre(valeur)
     if v is None:
-        if str(valeur).strip().lower() == "out" and "Frequency" in chemin:
+        if valeur == "Out" and "Frequency" in chemin:     # casse exacte : « out » -> borne haute sur l'appareil
             return None
         return f"valeur illisible « {valeur} » (nombre + unité attendus, ex. {r.get('exemple') or r.get('min')})"
     if (lo is not None and v < lo) or (hi is not None and v > hi):
         return f"hors plage {r.get('min')}…{r.get('max')}"
     return None
+
+
+def relecture_conforme(demande: str, relu: str | None, chemin: str = "") -> bool:
+    """True si la valeur relue correspond à la consigne.
+    Numérique : tolérance d'arrondi / pas de l'appareil. Format composé du délai (« 1.5ms/1.69ft/0.51m ») :
+    seul le premier segment (ms) est comparé. Liste : égalité exacte (Mute « 1 »/« 0 » = « On »/« Off »)."""
+    if relu is None:
+        return False
+    relu_txt = str(relu).strip()
+    vn, an = nombre(demande), nombre(relu_txt.split("/")[0])
+    if vn is not None and an is not None:
+        return abs(vn - an) <= max(0.051, abs(vn) * 0.005)      # arrondi d'affichage / pas de l'appareil
+    d = str(demande).strip()
+    if chemin.endswith("_Mute"):
+        d = {"1": "On", "0": "Off"}.get(d, d)
+    return relu_txt == d
+
+
 XO_PARAMS = ("HPFrequency", "HPType", "LPFrequency", "LPType", "Gain", "Polarity", "Phase")
 LIM_PARAMS = ("Limiter", "Threshold", "OverEasy", "Auto", "Attack", "Hold", "Release", "PeakStopPlus", "OvershootDb")
 PEQ_BANDE = ("Type", "Frequency", "Gain", "Q", "Slope")
@@ -565,12 +591,7 @@ def main() -> None:
             journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]"
                         + (f" [{note_plafond}]" if note_plafond else "") + (" [HORS CARTE]" if motif else ""))
             print(f"  relu : {apres}")
-            vn, an = nombre(valeur), nombre(apres)
-            if vn is not None and an is not None:
-                ok = abs(vn - an) <= max(0.051, abs(vn) * 0.005)      # arrondi d'affichage / pas de l'appareil
-            else:
-                ok = re.sub(r"\s", "", str(apres or "")).lower() == re.sub(r"\s", "", str(valeur)).lower()
-            if not ok:
+            if not relecture_conforme(valeur, apres, chemin):
                 journaliser(f"ECART {ip} {chemin} : demandé {valeur}, relu {apres}")
                 sys.exit(f"ÉCHEC : la valeur relue ({apres}) ne correspond pas à la demande ({valeur}). "
                          "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage).")

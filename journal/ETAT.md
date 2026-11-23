@@ -3,6 +3,38 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+
+## 2026-11-23 (suite 7) : premier test d'écriture complet sur le vrai VENU360 (10.104.31.113)
+
+Appareil : VENU360 « CKIDriveRack », firmware 2.0.5.0, 96 kHz, mot de passe d'usine. Réseau partagé avec le Wi-Fi Internet (à isoler).
+Preset chargé : n° 31 « QuiDri Gab1 Beta Caisson » (modifié). Sorties analogiques **+22 dBu sur les 6 sorties, confirmé par lecture**.
+Instantanés : `journal/instantanes/carte-test-avant.json` et `carte-test-apres.json` (identiques en fin de test).
+
+**Protocole :** les 6 sorties mutées pendant tout le test, chaque valeur écrite, relue puis restaurée, sens sûr d'abord (seuil plus bas, HPF plus haut).
+- **366/366 paramètres** du preset écrits, relus et restaurés (crossover, PEQ, limiteurs, délais, gains). Environ 60 ms par écriture.
+- **Rappel de preset (RPC Load)** testé sur 6 topologies (87, 86, 22, 100, 8, 31) : de 8 à 18 s par chargement, écriture OK dans chacune.
+- **Réglage d'appareil** `Output1Gain` : écrit et relu (+20, +12), puis remis à +22 dBu.
+
+**Limites constatées (importantes pour les garde-fous) :**
+- L'appareil ne renvoie **jamais d'erreur**. Une valeur hors plage est ramenée à la borne, et une valeur invalide est remplacée en silence :
+  `Threshold "abc"` donne **0 dB** (limiteur neutralisé) ; `HPType "LR24"`, `"lr 24"` ou `"LR 96"` donnent **BW 6** ; `"-12,5dB"` donne −12,0 dB ; `Output1Gain "5"` donne +20 dBu (un index est accepté).
+  La validation côté outil (carte + relecture) est donc la seule barrière.
+- Plages confirmées : Threshold −60…0 dB (pas 0,1), Attack 0,1…200 ms, Overshoot 2…6 dB, gain crossover −60…+20 dB,
+  HPF 16 Hz…20 kHz (< 16 Hz donne Out), PEQ gain ±20 dB, Q 0,1…16, fréquence 20 Hz…22 kHz (3 chiffres significatifs),
+  délai 0…1000 ms (pas 0,01 ms, accepte aussi les unités `m`, `ft` et `s`), gain de sortie −120…+20 dB.
+- La numérotation des instances dépend de la topologie : en stéréo liée, seules les instances impaires existent (PEQOut1/3/5),
+  et une écriture agit sur les deux sorties. Toujours refaire `carte` après un rappel.
+- Juste après un rappel, `carte` peut manquer des valeurs (délai d'attente de 1 s), comme Band_2 du preset 8 : attendre quelques secondes.
+- Le rappel d'un preset remet les mutes du preset (ici ZoneGains 3 et 4 sur On dans le n° 31 stocké).
+
+**Défauts de `dbx_hiqnet.py` CORRIGÉS (branche fix/dbx-validation-relecture, relu par `controleur-securite`, 77 tests, vérifié sur l'appareil) :**
+1. Faux « ÉCHEC » sur `DelayOut*\Amount` : la relecture `1.5ms/1.69ft/0.51m` n'est pas comparée à la consigne `1.5ms`.
+2. `valider_valeur` compare les listes sans tenir compte de la casse : `"lr 24"` passe alors que l'appareil écrit BW 6. La comparaison doit être exacte.
+3. Ajouts après relecture : valeur avec espace en début ou fin refusée, « Out » en casse exacte, virgule refusée même hors carte, 1/0 = On/Off seulement pour Mute.
+4. Reste à faire : attente ou nouvelle tentative de `carte` après un rappel ; tolérance de relecture relative (0,5 %) sans contrôle d'unité (pas de cas réel trouvé).
+
+**Questions ouvertes :** quel système est branché derrière ce processeur ? `ma-sono-actuel` ne correspond pas au preset 31 (sortie 1 = aigu). Limiteurs non recalculés pour cette raison.
+
 ## 2026-11-23 (suite 6) : audit approfondi n° 2 traité, voir `audits/2026-11-23-audit-approfondi-2.md`
 
 **Corrections logicielles, testées sans matériel (49 tests) :**
