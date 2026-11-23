@@ -10,3 +10,8 @@ mesures/*
 *.mdat
 # Réglages locaux de Claude Code
 .claude/settings.local.json
+
+# Extraits de logiciels propriétaires (dbx VENU360, REW) : gardés en local et sur le Drive, non redistribués
+data/protocoles/venu360_windows_classes/
+data/protocoles/venu360_windows_classes.zip
+docs/rew_api_5.40b121.json
