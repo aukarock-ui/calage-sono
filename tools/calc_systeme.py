@@ -178,6 +178,10 @@ def controle_excursion(v: dict, cfg: dict, hp: dict, v_rms_hp: float) -> tuple[l
     return r["alertes"], r
 
 
+def reglage_sortie_confirme(cfg: dict) -> bool:
+    return cfg.get("processeur_reglage_sortie_confirme") is True
+
+
 def plafond_limiteur(chemin_config: str, nom_voie: str) -> dict:
     """Seuil de limiteur calculé pour une voie (le plus haut autorisé) et son unité. Lève ValueError si non calculable."""
     mat, cfg = charger(chemin_config)
@@ -187,8 +191,10 @@ def plafond_limiteur(chemin_config: str, nom_voie: str) -> dict:
     r = calc_voie(voies[nom_voie], mat, cfg)
     if r.get("seuil_limiteur") is None:
         raise ValueError(f"seuil non calculable pour {nom_voie} : " + " / ".join(r.get("alertes", [])))
+    proc = (mat.get("processeurs") or {}).get(cfg.get("processeur")) or {}
     return {"seuil": r["seuil_limiteur"], "unite": r.get("unite_seuil"), "processeur": cfg.get("processeur"),
-            "alertes": r.get("alertes", [])}
+            "alertes": r.get("alertes", []),
+            "reglage_a_confirmer": bool(proc.get("sortie_0dbfs_dbu")) and not reglage_sortie_confirme(cfg)}
 
 
 def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
@@ -312,6 +318,10 @@ def calc_voie(v: dict, mat: dict, cfg: dict) -> dict:
     else:
         reglage = cfg.get("processeur_reglage_sortie") or cfg.get("venu_reglage_sortie")
         ref = (proc.get("sortie_0dbfs_dbu") or {}).get(reglage) if reglage else None
+        if proc.get("sortie_0dbfs_dbu") and not reglage_sortie_confirme(cfg):
+            alertes.append(f"Réglage de sortie {reglage or '?'} dBu NON CONFIRMÉ sur l'appareil (usine VENU360 : +12) : "
+                           "lire Output1Gain…Output6Gain (`dbx_hiqnet carte`) puis passer "
+                           "processeur_reglage_sortie_confirme à true. Écriture du seuil refusée d'ici là.")
         if ref is None and proc.get("sortie_max_dbu") is not None and not proc.get("sortie_0dbfs_dbu"):
             ref = proc["sortie_max_dbu"]
             alertes.append(f"0 dBFS pris = sortie max du processeur ({ref} dBu) — à confirmer dans son manuel.")
@@ -369,6 +379,8 @@ def rapport_markdown(cfg: dict, lignes: list[dict]) -> str:
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, − sinon UnicodeEncodeError
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config", nargs="?")
     ap.add_argument("--json", action="store_true")

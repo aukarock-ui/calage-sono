@@ -6,7 +6,10 @@ Aucun ne remplace une validation sur l'appareil réel.
 """
 from __future__ import annotations
 
+import json
+import socketserver
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -21,10 +24,25 @@ import dbx_hiqnet  # noqa: E402
 import dcx2496  # noqa: E402
 import faux_venu360  # noqa: E402
 import garde_fous  # noqa: E402
+import linea_tipi  # noqa: E402
 import mesure_tf  # noqa: E402
+import osm_client  # noqa: E402
 import tracks_dsp  # noqa: E402
 
-CONFIG = str(RACINE / "data" / "configs" / "ma-sono-actuel.yaml")
+CONFIG_BRUT = str(RACINE / "data" / "configs" / "ma-sono-actuel.yaml")   # réglage de sortie VENU360 non confirmé
+
+
+def _config_confirmee() -> str:
+    """Copie de la config actuelle dont le réglage de sortie est marqué « lu sur l'appareil » (pour tester le plafond)."""
+    texte = Path(CONFIG_BRUT).read_text(encoding="utf-8")
+    assert "processeur_reglage_sortie_confirme: false" in texte
+    p = Path(tempfile.mkdtemp(prefix="calage-test-")) / "config-confirmee.yaml"
+    p.write_text(texte.replace("processeur_reglage_sortie_confirme: false", "processeur_reglage_sortie_confirme: true"),
+                 encoding="utf-8")
+    return str(p)
+
+
+CONFIG = _config_confirmee()
 SEUIL = "\\\\Preset\\Limiter1\\SV\\Threshold"
 
 
@@ -273,3 +291,158 @@ def test_plan_micros_onax_offax():
     assert m["P2"]["role"] == "eq" and m["P3"]["role"] == "offax" and m["P4"]["role"] == "offax"
     assert m["P2"]["x"] == m["P1"]["x"]                      # ONAX sur l'axe de la pile de référence
     assert abs(m["P2"]["x"]) > 1                             # jamais sur la ligne centrale G/D
+
+
+# ---------------- audit du 23/11 (2e passe) : réglage de sortie, dbx rappel/stocker/rpc, TIPI, OSM ----------------
+def code_sortie(fonction, argv, monkeypatch) -> int:
+    monkeypatch.setattr(sys, "argv", argv)
+    try:
+        fonction()
+        return 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
+
+
+def test_seuil_refuse_si_reglage_sortie_non_confirme():
+    with pytest.raises(ValueError, match="non confirmé"):
+        garde_fous.verifier_plafond(-25, CONFIG_BRUT, "SUB", "dBFS", False)
+    r = calc_systeme.calc_voie(*_voie_sub(CONFIG_BRUT))
+    assert any("NON CONFIRMÉ" in x for x in r["alertes"])
+
+
+def _voie_sub(chemin):
+    mat, cfg = calc_systeme.charger(chemin)
+    return next(v for v in cfg["voies"] if v["nom"] == "SUB"), mat, cfg
+
+
+def test_dbx_rappel_exige_protection_validee(faux_dbx, monkeypatch, tmp_path):
+    assert lancer_dbx(faux_dbx, "rappel", "3", "--appliquer", monkeypatch=monkeypatch) != 0
+    assert not (tmp_path / "instantanes").exists()
+
+
+def test_dbx_rappel_fait_un_instantane_complet(faux_dbx, monkeypatch, tmp_path):
+    assert lancer_dbx(faux_dbx, "rappel", "3", "--appliquer", "--protection-validee", monkeypatch=monkeypatch) == 0
+    snaps = list((tmp_path / "instantanes").glob("*avant-rappel-3.json"))
+    assert len(snaps) == 1 and len(dbx_hiqnet.aplatir(json.loads(snaps[0].read_text(encoding="utf-8")))) > 20
+    log = (tmp_path / "ecritures.log").read_text(encoding="utf-8")
+    assert "RAPPEL preset 3" in log and "chargé = SIMU" in log
+
+
+def test_dbx_stocker_fait_un_instantane(faux_dbx, monkeypatch, tmp_path):
+    assert lancer_dbx(faux_dbx, "stocker", "2", "--appliquer", monkeypatch=monkeypatch) == 0
+    assert list((tmp_path / "instantanes").glob("*avant-stocker-2.json"))
+    assert "'TEST'" in (tmp_path / "ecritures.log").read_text(encoding="utf-8")   # nom de l'ancien preset journalisé
+
+
+def test_dbx_rpc_ecriture_refusee(faux_dbx, monkeypatch):
+    for m in ("Load", "Store", "FactoryRestore", "Inconnue"):
+        assert lancer_dbx(faux_dbx, "rpc", m, "1", "--appliquer", monkeypatch=monkeypatch) != 0
+    assert lancer_dbx(faux_dbx, "rpc", "Get", "1", "100", "presetName", monkeypatch=monkeypatch) == 0
+
+
+class _FauxTipi(socketserver.StreamRequestHandler):
+    """Appareil TIPI minimal : GET → NOTIFY, SET mémorisé (sauf Out2/Gain, qui ignore l'écriture)."""
+    valeurs = {"Out1/Gain": "0.0dB", "Out2/Gain": "0.0dB", "Out1/Mute": "no"}
+    recu: list = []
+
+    def handle(self):
+        buf = b""
+        while True:
+            b = self.request.recv(4096)
+            if not b:
+                return
+            buf += b
+            while b"\r" in buf:
+                ligne, buf = buf.split(b"\r", 1)
+                t = ligne.decode().lstrip("$").split()
+                _FauxTipi.recu.append(" ".join(t))
+                if t[0] == "GET":
+                    v = self.valeurs.get(t[1])
+                    rep = f"$NOTIFY {t[1]} {v}\r" if v is not None else "$ERROR UnsupportedMethod 09\r"
+                    self.request.sendall(rep.encode())
+                elif t[0] == "SET" and t[1] != "Out2/Gain":
+                    self.valeurs[t[1]] = t[2]
+
+
+@pytest.fixture
+def faux_tipi(tmp_path, monkeypatch):
+    srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _FauxTipi)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setattr(linea_tipi, "JOURNAL", tmp_path)
+    _FauxTipi.recu = []
+    yield srv.server_address[1]
+    srv.shutdown()
+    srv.server_close()
+
+
+def lancer_tipi(port, *args, monkeypatch):
+    return code_sortie(linea_tipi.main, ["linea_tipi.py", args[0], "127.0.0.1", *args[1:], "--port", str(port)],
+                       monkeypatch)
+
+
+def test_tipi_injection_refusee_avant_tout_envoi(faux_tipi, monkeypatch):
+    for methode, valeur in (("Out1/Gain\rSET Out1/Mute yes", "0"), ("Out1/Gain", "0\r$SET Out1/Mute yes"),
+                            ("Out1/Gain", "0 dB"), ("Out1/Gain\n", "0")):
+        assert lancer_tipi(faux_tipi, "set", methode, valeur, "--appliquer", "--protection-validee",
+                           monkeypatch=monkeypatch) != 0
+    assert lancer_tipi(faux_tipi, "get", "Out1/Gain\rSET Out1/Mute yes", monkeypatch=monkeypatch) != 0
+    assert _FauxTipi.recu == []                                   # rien n'a atteint l'appareil
+
+
+def test_tipi_methode_hors_liste_refusee(faux_tipi, monkeypatch):
+    for m in ("Out1/Meter", "Out1/LimThresh", "Factory/Reset", "Out9/Gain", "InE/Gain"):
+        assert lancer_tipi(faux_tipi, "set", m, "1", "--appliquer", "--protection-validee", monkeypatch=monkeypatch) != 0
+    assert _FauxTipi.recu == []
+
+
+def test_tipi_relecture_stricte(faux_tipi, monkeypatch, tmp_path):
+    assert lancer_tipi(faux_tipi, "set", "Out1/Gain", "-3.0dB", "--appliquer", monkeypatch=monkeypatch) == 0
+    assert lancer_tipi(faux_tipi, "set", "Out2/Gain", "-3.0dB", "--appliquer", monkeypatch=monkeypatch) != 0
+    assert "ECART" in (tmp_path / "ecritures.log").read_text(encoding="utf-8")
+
+
+def _osm(monkeypatch, *args):
+    envoye = []
+    monkeypatch.setattr(osm_client, "ecouter", lambda duree=5.0: {"1.2.3.4": {"generator": "uuid-gen"}})
+    monkeypatch.setattr(osm_client, "requete", lambda hote, objet, timeout=5.0: envoye.append(objet) or {"ok": 1})
+    code = code_sortie(osm_client.main, ["osm_client.py", "generateur", "1.2.3.4", *args], monkeypatch)
+    return code, envoye
+
+
+def test_osm_generateur_niveau_impose(monkeypatch):
+    for args in (("--on", "--appliquer"),                          # niveau mémorisé inconnu
+                 ("--on", "--off", "--gain", "-30", "--appliquer"),
+                 ("--on", "--gain", "-6", "--appliquer"),         # trop fort
+                 ("--appliquer",)):                               # rien à faire
+        code, envoye = _osm(monkeypatch, *args)
+        assert code != 0 and envoye == []
+    code, envoye = _osm(monkeypatch, "--on", "--gain", "-30", "--appliquer")
+    assert code == 0 and envoye[0]["data"] == {"gain": -30.0, "enabled": True}    # un seul message, gain compris
+    code, envoye = _osm(monkeypatch, "--off", "--appliquer")
+    assert code == 0 and envoye[0]["data"] == {"enabled": False}
+
+
+def test_osm_moyenne_grilles_differentes_refusee(tmp_path, monkeypatch):
+    def mesure(nom, freqs):
+        p = tmp_path / nom
+        p.write_text(json.dumps({"ftdata": [[f, 0, 1.0, 0.0, 1.0] for f in freqs]}), encoding="utf-8")
+        return str(p)
+    a, b = mesure("a.json", [100, 200, 400]), mesure("b.json", [100, 210, 400])
+    c = mesure("c.json", [100, 200, 400])
+    argv = ["osm_client.py", "moyenne"]
+    assert code_sortie(osm_client.main, argv + [a, b, "-o", str(tmp_path / "m.json")], monkeypatch) != 0
+    assert code_sortie(osm_client.main, argv + [a, c, "-o", str(tmp_path / "m.json")], monkeypatch) == 0
+    assert code_sortie(osm_client.main, ["osm_client.py", "lire", "1.2.3.4"], monkeypatch) != 0   # argument manquant
+
+
+def test_osm_coherence_nulle_toleree(tmp_path, monkeypatch):
+    # OSM v1.5.2 réel : cohérence NaN → null dans le JSON là où il n'y a pas de signal (trouvé le 23/11/2026).
+    ft = [[100.0, 0, 1.0, 0.0, None], [125.0, 0, 1.0, 0.0, 0.9], [160.0, 0, None, 0.0, 0.9]]
+    propre = osm_client.nettoyer_ft(ft)
+    assert propre == [[100.0, 0, 1.0, 0.0, 0.0], [125.0, 0, 1.0, 0.0, 0.9]]
+    assert osm_client.tiers_octave(propre, (90, 200))                    # plus de TypeError
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps({"ftdata": ft, "timeData": [[0.0, None], [0.1, 0.5]]}), encoding="utf-8")
+    assert len(osm_client.charger(str(p))["ftdata"]) == 2
+    assert osm_client.pic_ir([[0.0, None], [0.1, 0.5]])["temps_pic_ms"] == 0.1

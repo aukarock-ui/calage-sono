@@ -7,6 +7,7 @@ proprietaire: null                 # Louis, loueur, salle…
 type_systeme: composants           # composants | constructeur | amplifiee | mixte (alors préciser par voie)
 processeur: null                   # clé de data/materiel.yaml > processeurs (ex. DBX_VENU360), ou texte libre si absent
 processeur_reglage_sortie: null    # ex. "+22" pour le VENU360 ; sinon null
+processeur_reglage_sortie_confirme: false  # true seulement après lecture de Output1Gain…Output6Gain sur l'appareil (usine : +12)
 processeur_unite_seuil: dBFS       # dBFS | dBu | V — unité des seuils de limiteur du processeur (la bibliothèque prime)
 processeur_overshoot_db: null      # dbx VENU360 : OVERSHOOT PeakStopPlus lu par `carte` (2–6, défaut 6) ; PA2 : 3 fixe
 pourcentage_puissance_limite: 0.75 # composants : fraction de la puissance nominale visée par les limiteurs

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import socket
 import sys
 import time
@@ -41,6 +42,48 @@ CANDIDATES_IN = ["Mute", "Gain", "Pol", "Meter", "Delay"]
 CANDIDATES_OUT = ["Mute", "Gain", "Pol", "Meter", "Delay", "Imp",
                   "Eq1Freq", "Eq1Gain", "Eq1Bw", "Eq2Freq", "Eq2Gain", "HpfFreq", "LpfFreq", "LimThresh"]
 
+# Écriture : liste blanche. Mesures et identifiants sont en lecture seule. Le seuil de limiteur est exclu : aucun
+# plafond calculé n'est vérifié ici (calc_systeme / garde_fous) → feuille de saisie ou System Engineer.
+LECTURE_SEULE = {"Meter", "Type", "Version", "Imp", "Alarms/Worst", "LimThresh"}
+ENTREES = ("A", "B", "C", "D")
+SORTIES_MAX = 8
+RE_METHODE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(/[A-Za-z][A-Za-z0-9]*)?$")
+RE_VALEUR = re.compile(r"^[A-Za-z0-9.+\-]+$")
+
+
+def verifier_trame(methode: str, valeur: str | None = None):
+    """Refuse toute méthode/valeur qui pourrait injecter une 2e commande (CR, LF, NUL, espace…) ou sortir de la grammaire."""
+    for nom, t in (("méthode", methode), ("valeur", valeur)):
+        if t is not None and any(ord(c) < 0x20 or ord(c) == 0x7F for c in t):
+            raise ValueError(f"caractère de contrôle dans la {nom} : {t!r}")
+    if not RE_METHODE.match(methode):
+        raise ValueError(f"méthode mal formée : {methode!r} (attendu par ex. Out1/Gain)")
+    if valeur is not None and not RE_VALEUR.match(valeur):
+        raise ValueError(f"valeur mal formée : {valeur!r} (chiffres, lettres, . + - seulement ; unités collées : 15000Hz)")
+
+
+def methode_ecrivable(methode: str) -> bool:
+    if methode == "Snapshot":
+        return True
+    m = re.match(r"^(In([A-D])|Out([1-9]))/(\w+)$", methode)
+    if not m or m.group(4) in LECTURE_SEULE:
+        return False
+    if m.group(2):
+        return m.group(4) in CANDIDATES_IN
+    return 1 <= int(m.group(3)) <= SORTIES_MAX and m.group(4) in CANDIDATES_OUT
+
+
+def nombre(t) -> float | None:
+    m = re.match(r"^\s*([+-]?\d+(?:\.\d+)?)", str(t or ""))
+    return float(m.group(1)) if m else None
+
+
+def relu_conforme(demande: str, relu: str) -> bool:
+    vn, an = nombre(demande), nombre(relu)
+    if vn is not None and an is not None:
+        return abs(vn - an) <= max(0.051, abs(vn) * 0.005)
+    return re.sub(r"\s", "", str(relu or "")).lower() == re.sub(r"\s", "", str(demande)).lower()
+
 
 class Tipi:
     def __init__(self, hote: str, port: int = PORT, timeout: float = 2.0):
@@ -51,6 +94,8 @@ class Tipi:
         self.s.close()
 
     def _envoyer(self, t: str):
+        if any(ord(c) < 0x20 or ord(c) == 0x7F for c in t):   # dernier rempart : une seule commande par trame
+            raise ValueError(f"caractère de contrôle refusé dans la trame : {t!r}")
         self.s.sendall(f"${t}\r".encode("ascii"))
 
     def _lire(self) -> str | None:
@@ -106,6 +151,8 @@ def journaliser(t):
 def main():
     if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["get", "sonder", "set", "snapshot"])
     ap.add_argument("args", nargs="*")
@@ -118,6 +165,20 @@ def main():
     argv = [("\x00" + t) if t[:1] == "-" and t[1:2].isdigit() else t for t in sys.argv[1:]]
     a = ap.parse_intermixed_args(argv)
     a.args = [t[1:] if t.startswith("\x00") else t for t in a.args]
+
+    besoin = {"get": 2, "sonder": 1, "set": 3, "snapshot": 2}[a.cmd]
+    if len(a.args) < besoin:
+        sys.exit(f"{a.cmd} : {besoin} argument(s) attendu(s) (voir --help).")
+    if a.cmd in ("get", "set", "snapshot"):
+        methode, valeur = {"get": (a.args[1] if len(a.args) > 1 else "", None),
+                           "set": tuple(a.args[1:3]), "snapshot": ("Snapshot", a.args[1])}[a.cmd]
+        try:
+            verifier_trame(methode, valeur)        # AVANT toute connexion : même le GET préalable doit être sain
+        except ValueError as e:
+            sys.exit(f"REFUS : {e}")
+        if a.cmd != "get" and not methode_ecrivable(methode):
+            sys.exit(f"REFUS : {methode} n'est pas dans la liste des méthodes modifiables (mesures, identifiants et "
+                     "seuil de limiteur exclus ; méthode inconnue refusée).")
 
     t = Tipi(a.args[0], a.port)
     try:
@@ -149,9 +210,15 @@ def main():
                 print("SIMULATION — rien n'a été écrit (ajouter --appliquer).")
                 return
             err = t.set(methode, valeur)
-            apres = t.get(methode)[1] if methode != "Snapshot" else "(rappel)"
-            journaliser(f"SET {a.args[0]} {methode} {avant} -> {valeur} (relu {apres}) {err or ''}")
-            print(f"  relu : {apres}" + (f"  ERREUR : {err}" if err else ""))
+            etat_r, apres = t.get(methode)
+            journaliser(f"SET {a.args[0]} {methode} {avant} -> {valeur} (relu {etat_r} {apres}) {err or ''}")
+            print(f"  relu : {apres if etat_r == 'ok' else etat_r}" + (f"  ERREUR : {err}" if err else ""))
+            if err:
+                sys.exit(f"ÉCHEC : l'appareil a répondu une erreur ({err}).")
+            if etat_r != "ok" or not relu_conforme(valeur, apres):
+                journaliser(f"ECART {a.args[0]} {methode} : demandé {valeur}, relu {etat_r} {apres}")
+                sys.exit(f"ÉCHEC : la valeur relue ({apres or etat_r}) ne correspond pas à la demande ({valeur}). "
+                         "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage).")
     finally:
         t.fermer()
 

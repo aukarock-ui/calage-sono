@@ -3,6 +3,38 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-23 (suite 6) : audit approfondi n° 2 traité, voir `audits/2026-11-23-audit-approfondi-2.md`
+
+**Corrections logicielles, testées sans matériel (49 tests) :**
+- **TIPI :** injection CR/LF bloquée avant toute connexion ; liste blanche des méthodes ; relecture stricte.
+- **dbx :** `rappel` exige `--protection-validee` ; instantané complet avant `rappel` et `stocker` ; `rpc` en lecture seule.
+- **OSM :** le générateur ne s'allume qu'avec un gain imposé (≤ −10 dBFS) ; arguments et grilles de fréquences contrôlés.
+
+**Nouveau garde-fou :** `processeur_reglage_sortie_confirme` vaut false dans les deux configs. Tant que ce champ ne vaut pas true,
+`dbx_hiqnet set` refuse d'écrire un seuil de limiteur. Le passer à true seulement après avoir lu `Output1Gain…Output6Gain`
+sur le VENU360 (valeur d'usine +12 dBu, configs à +22).
+
+**REW testé en vrai le 23/11/2026** (REW 5.40 beta 121, API 0.9.4, lancé avec `-api`, aucune sortie audio branchée, aucun son joué) :
+- `info` et `liste` fonctionnent.
+- `mesurer` est refusé sans `--appliquer`.
+- L'autotest est OK : l'IR trouve −1,50 ms avec inversion. La phase seule trouve +0,13 ms, ce qui est l'ambiguïté de cycle
+  attendue, et l'alerte se déclenche.
+- `importer`, `lire` et `ir` fonctionnent sur un WAV synthétique (passe-bande 60 Hz–2 kHz). Les coupures sont bien
+  à −3 dB sous le centre. La mesure de test a été supprimée de REW.
+
+**Open Sound Meter testé en vrai le 23/11/2026** (OSM v1.5.2 sur le PC, hôte « AUKA », Remote > Server activé ;
+générateur non pilotable et non touché). Tout en lecture seule :
+- `ecouter` trouve OSM et sa mesure.
+- `lire` récupère 8192 points FFT et 16384 points d'IR.
+- `lire --resolution 24`, `moyenne` et `comparer` fonctionnent sur les fichiers lus.
+- **Bug trouvé et corrigé :** OSM envoie une cohérence `null` (NaN) là où il n'y a pas de signal, et `tiers_octave` plantait.
+  `nettoyer_ft` met la cohérence à 0 (point jugé non fiable) et retire les points sans module ni phase. Test de non-régression ajouté.
+
+**Points matériels (rien à coder) :**
+- Le SUB actuel n'est pas validé tant que le HPF réel et l'accord ne sont pas relevés.
+- Refonte : l'excursion du SUB atteint Xmax vers 99 V RMS, sous le plafond thermique de 109,5 V. C'est une contrainte
+  distincte, à trancher par Louis après mesure. Ne pas compenser par un HPF plus raide : le pic est à 46 Hz, au-dessus de l'accord.
+
 ## 2026-11-23 (suite 5) — Ouvrages de Louis lus (Boyce, McCarthy en entier pour le calage)
 - **Boyce**, *Introduction to Live Sound Reinforcement* (2014), lu sur tout ce qui touche au calage. Ajouts à `calc_systeme.py` :
   - `--puissance` : puissance ampli requise ;

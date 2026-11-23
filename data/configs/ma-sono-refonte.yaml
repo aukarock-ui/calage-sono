@@ -7,6 +7,7 @@ proprietaire: Louis
 type_systeme: composants
 processeur: DBX_VENU360
 processeur_reglage_sortie: "+22"
+processeur_reglage_sortie_confirme: false  # true seulement après lecture de Output1Gain…Output6Gain sur l'appareil (usine : +12)
 processeur_overshoot_db: null      # PeakStopPlus OVERSHOOT — à lire par `carte` (défaut appli 6 dB)
 processeur_unite_seuil: dBFS
 pourcentage_puissance_limite: 0.75

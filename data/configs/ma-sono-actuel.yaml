@@ -6,6 +6,7 @@ proprietaire: Louis
 type_systeme: composants
 processeur: DBX_VENU360
 processeur_reglage_sortie: "+22"  # réglage « analog output gain » du Venu360 — A CONFIRMER sur la machine
+processeur_reglage_sortie_confirme: false  # true seulement après lecture de Output1Gain…Output6Gain sur l'appareil (usine : +12)
 processeur_overshoot_db: null      # PeakStopPlus OVERSHOOT — à lire par `carte` (défaut appli 6 dB)
 processeur_unite_seuil: dBFS
 preferences: "Réglages processeur fixes (set and forget), ajustements par style à la console ; voicing bass-heavy assumé (têtes en retrait) ; préserver le grain du CP650Ti ; CP650Ti limités à 75 %."

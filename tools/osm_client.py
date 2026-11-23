@@ -99,6 +99,21 @@ def trouver_source(hote: str, cle: str, duree: float = 4.0) -> str:
 
 
 # ---------------- analyse ----------------
+def _fini(x) -> bool:
+    return isinstance(x, (int, float)) and math.isfinite(x)
+
+
+def nettoyer_ft(ft: list) -> list:
+    """OSM envoie NaN (null en JSON) pour la cohérence là où il n'y a pas de signal (vérifié sur OSM v1.5.2) :
+    cohérence absente → 0 (point jugé non fiable, poids minimal) ; fréquence/module/phase absents → point retiré."""
+    out = []
+    for l in ft:
+        if len(l) < 5 or not all(_fini(l[j]) for j in (0, 2, 3)):
+            continue
+        out.append([l[0], l[1], l[2], l[3], l[4] if _fini(l[4]) else 0.0])
+    return out
+
+
 def tiers_octave(ft: list, bande=(20.0, 20000.0), coh_min=0.0, n: int = 3) -> list:
     """Bandes de 1/n d'octave (n = 3 par défaut : vue d'ensemble). Décider d'un filtre d'EQ sur une vue au 1/24
     d'octave (McCarthy 2007, ch. 8 : une EQ en 1/6 d'octave demande une analyse 4 fois plus fine)."""
@@ -126,6 +141,9 @@ def tiers_octave(ft: list, bande=(20.0, 20000.0), coh_min=0.0, n: int = 3) -> li
 def pic_ir(td: list) -> dict:
     if not td:
         return {}
+    td = [t for t in td if len(t) >= 2 and _fini(t[0]) and _fini(t[1])]
+    if not td:
+        return {}
     i = max(range(len(td)), key=lambda k: abs(td[k][1]))
     return {"temps_pic_ms": round(td[i][0], 3), "polarite_pic": "+" if td[i][1] >= 0 else "-"}
 
@@ -136,12 +154,37 @@ def valeur_a(ft: list, f: float):
 
 
 def charger(p: str) -> dict:
-    return json.loads(Path(p).read_text(encoding="utf-8"))
+    """Mesure OSM enregistrée : refuse un fichier illisible ou sans ftdata [f, _, module, phase, cohérence]."""
+    try:
+        d = json.loads(Path(p).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        sys.exit(f"Fichier de mesure illisible : {p} ({e})")
+    ft = d.get("ftdata") if isinstance(d, dict) else None
+    if not ft or not all(isinstance(l, (list, tuple)) and len(l) >= 5 for l in ft):
+        sys.exit(f"{p} : pas de ftdata exploitable (attendu [f, _, module, phase, cohérence] par point).")
+    d["ftdata"] = nettoyer_ft(ft)
+    if not d["ftdata"]:
+        sys.exit(f"{p} : aucun point valide (mesure vide ?).")
+    return d
+
+
+def grilles_identiques(mesures: list[list]) -> str | None:
+    """None si toutes les mesures ont la même grille de fréquences ; sinon la raison du refus."""
+    ref = [l[0] for l in mesures[0]]
+    for k, m in enumerate(mesures[1:], 2):
+        if len(m) != len(ref):
+            return f"mesure n°{k} : {len(m)} points au lieu de {len(ref)}"
+        for f0, l in zip(ref, m):
+            if abs(l[0] - f0) > 1e-6 * max(1.0, abs(f0)):
+                return f"mesure n°{k} : fréquence {l[0]} Hz au lieu de {f0} Hz"
+    return None
 
 
 def main():
     if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["ecouter", "lire", "comparer", "moyenne", "generateur"])
     ap.add_argument("args", nargs="*")
@@ -155,6 +198,13 @@ def main():
     ap.add_argument("-o", "--sortie")
     ap.add_argument("--resolution", type=int, default=3, help="bandes par octave : 3 (vue d'ensemble), 24 (décision d'EQ)")
     a = ap.parse_args()
+    besoin = {"ecouter": 0, "lire": 2, "comparer": 2, "moyenne": 2, "generateur": 1}[a.cmd]
+    if len(a.args) < besoin:
+        sys.exit(f"{a.cmd} : au moins {besoin} argument(s) attendu(s) (voir --help).")
+    if a.cmd == "comparer" and (a.fc is None or a.fc <= 0):
+        sys.exit("comparer : --fc <fréquence de coupure en Hz, > 0> obligatoire.")
+    if not 0 < a.bande[0] < a.bande[1]:
+        sys.exit("--bande : deux fréquences positives croissantes attendues.")
     cle_b = "tiers_octave" if a.resolution == 3 else f"bandes_1_{a.resolution}_octave"
 
     if a.cmd == "ecouter":
@@ -173,6 +223,7 @@ def main():
         r = requete(hote, {"message": "requestData", "uuid": uuid, "name": "Claude"})
         if r.get("message") != "sourceData":
             sys.exit(f"Réponse inattendue : {r}")
+        r["ftdata"] = nettoyer_ft(r.get("ftdata") or [])
         r["_meta"] = {"hote": hote, "source": cle, "date": time.strftime("%Y-%m-%d %H:%M:%S")}
         out = Path(a.sortie or f"mesures/{cle}_{time.strftime('%H%M%S')}.json")
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -201,7 +252,11 @@ def main():
 
     if a.cmd == "moyenne":
         mes = [charger(p)["ftdata"] for p in a.args]
-        n = min(len(m) for m in mes)
+        motif = grilles_identiques(mes)
+        if motif:
+            sys.exit(f"REFUS : grilles de fréquences différentes ({motif}). Mesurer avec les mêmes réglages OSM "
+                     "(fenêtre, résolution, moyennage) avant de moyenner.")
+        n = len(mes[0])
         moy = []
         for i in range(n):
             w = [max(m[i][4], 1e-3) for m in mes]
@@ -218,16 +273,23 @@ def main():
 
     if a.cmd == "generateur":
         hote = a.args[0]
+        if a.on and a.off:
+            sys.exit("REFUS : --on et --off en même temps.")
+        if a.on and a.gain is None:
+            sys.exit(f"REFUS : --on exige --gain (≤ {GAIN_GEN_MAX_DB} dBFS). Le niveau mémorisé dans OSM est inconnu : "
+                     "on impose toujours un niveau sûr avant d'allumer.")
+        if a.gain is not None and a.gain > GAIN_GEN_MAX_DB:
+            sys.exit(f"REFUS : gain {a.gain} dBFS > {GAIN_GEN_MAX_DB} dBFS. Monter à la main dans OSM si nécessaire.")
         hello = ecouter(a.duree).get(hote)
         if not hello or hello.get("generator") in (None, "disable"):
             sys.exit("Générateur non pilotable : dans OSM, Remote > cocher « enable for remote ».")
         data = {}
         if a.gain is not None:
-            if a.gain > GAIN_GEN_MAX_DB:
-                sys.exit(f"REFUS : gain {a.gain} dBFS > {GAIN_GEN_MAX_DB} dBFS. Monter à la main dans OSM si nécessaire.")
-            data["gain"] = a.gain
+            data["gain"] = a.gain          # même message que enabled : le niveau est imposé au moment de l'allumage
         if a.on or a.off:
             data["enabled"] = bool(a.on)
+        if not data:
+            sys.exit("Rien à envoyer : préciser --gain, --on ou --off.")
         if not a.appliquer:
             print(f"SIMULATION : générateur {data} (ajouter --appliquer, après accord de Louis : niveau sûr, personne exposé).")
             return

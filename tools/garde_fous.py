@@ -45,6 +45,10 @@ def verifier_plafond(valeur: float, config: str | None, voie: str | None, unite:
     if p["unite"] != unite:
         raise ValueError(f"unité du plafond ({p['unite']}) ≠ unité du processeur ({unite}) : vérifier la config "
                          f"(processeur {p['processeur']})")
+    if p.get("reglage_a_confirmer"):
+        raise ValueError(f"réglage de sortie analogique du processeur non confirmé dans {config} : le plafond dépend "
+                         "de ce réglage (+12 ou +22 dBu → 10 dB d'écart). Lire Output1Gain…Output6Gain sur l'appareil, "
+                         "corriger processeur_reglage_sortie, puis processeur_reglage_sortie_confirme: true")
     if valeur > p["seuil"] + TOLERANCE_PLAFOND_DB:
         msg = (f"seuil demandé {valeur:g} {unite} AU-DESSUS du plafond calculé {p['seuil']:g} {unite} "
                f"({config}, voie {voie}) : moins protecteur")

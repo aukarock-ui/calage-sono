@@ -17,7 +17,8 @@ github.com/fiLLLip/dbx-venu360 pour le VENU360 ; capture Wireshark de l'appli of
 
 SÉCURITÉ — cet outil pilote un processeur relié à des amplis de plusieurs kW :
   * Par défaut TOUT est en lecture seule. Une écriture exige --appliquer.
-  * Avant toute écriture : instantané automatique (journal/instantanes/), et journalisation (journal/ecritures.log).
+  * Avant toute écriture : instantané automatique (journal/instantanes/ ; carte complète avant rappel/stockage de preset),
+    et journalisation (journal/ecritures.log).
   * Écritures sur un chemin de protection (Limiter, HPF/HPType du crossover, Mute...) : refusées sans --protection-validee,
     flag que Claude ne passe QUE si Louis a confirmé explicitement dans la conversation.
   * Pas d'écriture pendant un concert. Réseau isolé uniquement.
@@ -34,9 +35,9 @@ Usage :
   python tools/dbx_hiqnet.py ecouter  <ip> "\\\\Preset\\..."   # sub : affiche les changements en direct
   python tools/dbx_hiqnet.py set      <ip> "<chemin>" "<valeur>" [--appliquer] [--protection-validee]
   python tools/dbx_hiqnet.py presets  <ip>
-  python tools/dbx_hiqnet.py rappel   <ip> <n> [--appliquer]
-  python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer]                 # JSON-RPC Store : mémorise l'état dans le preset n
-  python tools/dbx_hiqnet.py rpc      <ip> <Methode> [params...]             # lecture libre, écriture avec --appliquer
+  python tools/dbx_hiqnet.py rappel   <ip> <n> [--appliquer --protection-validee]  # Load : instantané complet avant
+  python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer]                 # JSON-RPC Store : instantané complet avant
+  python tools/dbx_hiqnet.py rpc      <ip> <Methode> [params...]             # méthodes de LECTURE seulement (liste blanche)
 Carte complète des paramètres VENU360 : data/venu360_parametres.yaml (issue de l'appli v2.0.7).
 """
 from __future__ import annotations
@@ -370,6 +371,16 @@ def journaliser(texte: str) -> None:
         f.write(f"{dt.datetime.now().isoformat(timespec='seconds')} {texte}\n")
 
 
+def instantane_avant(d: "Dbx", ip: str, motif: str) -> Path:
+    """Carte complète du processeur avant une opération globale (rappel, stockage) : permet de comparer/revenir."""
+    t = d.carte()
+    t["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds"), "motif": motif}
+    out = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-{motif}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(t, ensure_ascii=False, indent=1), encoding="utf-8")
+    return out
+
+
 def est_protection(chemin: str) -> bool:
     c = chemin.lower()
     return any(m in c for m in MOTS_PROTECTION)
@@ -395,6 +406,8 @@ def decouvrir(timeout: float = 3.0) -> list[tuple[str, str]]:
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):  # console Windows cp1252 : Ω, ≈, −, ≤ sinon UnicodeEncodeError
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set", "presets", "rappel", "stocker", "rpc"])
     ap.add_argument("args", nargs="*")
@@ -455,30 +468,46 @@ def main() -> None:
             for r in d.rpc("Get", ["1", "100", "presetName"]):
                 for k, v in sorted((r.get("result") or {}).items(), key=lambda t: int(t[0])):
                     print(f"{k}: {v}")
-        elif a.cmd == "rappel":
-            if not a.appliquer:
-                print(f"SIMULATION : rappel du preset {a.args[1]} (ajouter --appliquer). Couper les amplis ou muter avant un rappel.")
-                return
-            journaliser(f"RAPPEL preset {a.args[1]} sur {ip}")
-            for r in d.rpc("Load", [str(a.args[1])]):
-                print(r.get("result"), r.get("error") or "")
-        elif a.cmd == "stocker":
+        elif a.cmd in ("rappel", "stocker"):
             n = str(a.args[1])
+            if not re.fullmatch(r"\d{1,3}", n):
+                sys.exit(f"REFUS : numéro de preset invalide : {n!r}.")
+            rappel = a.cmd == "rappel"
+            # Un rappel remplace d'un coup filtres, limiteurs, gains et mutes : même verrou qu'un paramètre de protection.
+            if rappel and not a.protection_validee:
+                sys.exit("REFUS : un rappel de preset modifie aussi les PROTECTIONS (limiteurs, HPF, mutes). "
+                         "Validation explicite de Louis requise (--protection-validee).")
             if not a.appliquer:
-                print(f"SIMULATION : mémoriser l'état courant dans le preset {n} (ÉCRASE ce preset). Ajouter --appliquer.")
+                print(f"SIMULATION : rappel du preset {n} (ajouter --appliquer). Couper les amplis ou muter avant un rappel."
+                      if rappel else
+                      f"SIMULATION : mémoriser l'état courant dans le preset {n} (ÉCRASE ce preset). Ajouter --appliquer.")
                 return
-            journaliser(f"STORE preset {n} sur {ip}")
-            for r in d.rpc("Store", [n]):
+            noms = {}
+            for r in d.rpc("Get", ["1", "100", "presetName"]):
+                noms.update(r.get("result") or {})
+            snap = instantane_avant(d, ip, f"avant-{a.cmd}-{n}")
+            print(f"Instantané complet avant {a.cmd} : {snap}")
+            journaliser(f"{'RAPPEL' if rappel else 'STORE'} preset {n} ({noms.get(n, 'vide')!r}) sur {ip} "
+                        f"[instantané {snap.name}]"
+                        + ("" if rappel else " — l'ancien contenu du preset n'est pas sauvegardé (illisible sans le charger)"))
+            reps = d.rpc("Load" if rappel else "Store", [n])
+            for r in reps:
                 print(r.get("result"), r.get("error") or "")
+            erreurs = [r["error"] for r in reps if r.get("error")]
+            if not reps or erreurs:
+                journaliser(f"ECHEC {a.cmd} preset {n} sur {ip} : {erreurs or 'aucune réponse'}")
+                sys.exit(f"ÉCHEC : {a.cmd} du preset {n} : {erreurs or 'aucune réponse'}. Comparer à l'instantané {snap}.")
+            if rappel:
+                charge = d.get("\\\\Node\\Settings\\SV\\LoadedPresetName")
+                print(f"  preset chargé (relu) : {charge}")
+                journaliser(f"RAPPEL preset {n} sur {ip} : chargé = {charge}")
         elif a.cmd == "rpc":
             methode, params = a.args[1], a.args[2:]
-            if methode in RPC_INTERDITS:
-                sys.exit(f"REFUS : {methode} est irréversible ou destructif — à faire depuis l'appli officielle, en connaissance de cause.")
-            if methode not in RPC_LECTURE and not a.appliquer:
-                print(f"SIMULATION : {methode} {params} (méthode d'écriture — ajouter --appliquer).")
-                return
-            if methode not in RPC_LECTURE:
-                journaliser(f"RPC {methode} {params} sur {ip}")
+            if methode not in RPC_LECTURE:      # liste blanche : la commande rpc ne fait que lire
+                sys.exit(f"REFUS : {methode} n'est pas une méthode de lecture connue ({', '.join(sorted(RPC_LECTURE))}). "
+                         "Rappel et stockage de presets : commandes « rappel » et « stocker » (instantané automatique) ; "
+                         + ("méthode irréversible : appli officielle seulement." if methode in RPC_INTERDITS else
+                            "autre écriture : non prise en charge."))
             print(json.dumps(d.rpc(methode, params), ensure_ascii=False, indent=1))
         elif a.cmd == "set":
             chemin, valeur = a.args[1], a.args[2]
