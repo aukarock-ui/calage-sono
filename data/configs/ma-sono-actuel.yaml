@@ -1,0 +1,85 @@
+# Configuration ACTUELLE MA Sono — pile mono 5 voies (avant refonte des caisses)
+# Câblage tel que décrit par Louis (projet MA Sono). Les champs null sont à renseigner.
+
+nom: ma-sono-actuel
+proprietaire: Louis
+type_systeme: composants
+processeur: DBX_VENU360
+processeur_reglage_sortie: "+22"  # réglage « analog output gain » du Venu360 — A CONFIRMER sur la machine
+processeur_overshoot_db: null      # PeakStopPlus OVERSHOOT — à lire par `carte` (défaut appli 6 dB)
+processeur_unite_seuil: dBFS
+preferences: "Réglages processeur fixes (set and forget), ajustements par style à la console ; voicing bass-heavy assumé (têtes en retrait) ; préserver le grain du CP650Ti ; CP650Ti limités à 75 %."
+pourcentage_puissance_limite: 0.75  # décision Louis : 75 % de la puissance nominale
+temperature_c: 20                 # pour la vitesse du son ; mettre la valeur du jour en extérieur
+
+voies:
+  - nom: SUB
+    type: composants
+    sortie: 1
+    hp: RCF_LF21X451
+    hp_en_serie: 1              # HP en série dans une caisse
+    branches_paralleles: 2      # nombre de caisses en parallèle sur le canal ampli
+    ampli: QSC_PL380
+    mode: bridge
+    gain_canal_db: 32           # sélecteur PL380
+    charge: "bass-reflex couché, 1×21\""
+    accord_event_hz: null       # caisses actuelles non mesurées (refonte : 34 Hz)
+  - nom: KICK
+    type: composants
+    sortie: 2
+    hp: BEYMA_SM118_GEN1
+    hp_en_serie: 2
+    branches_paralleles: 4
+    ampli: QSC_PLX3002
+    mode: bridge
+    gain_canal_db: 32
+    charge: "bass-reflex debout, 2×18\" en série (16 Ω/caisse)"
+    accord_event_hz: null
+  - nom: MEDIUM
+    type: composants
+    sortie: 3
+    hp: BEYMA_SM115_GEN1
+    hp_en_serie: 2
+    branches_paralleles: 2
+    ampli: QSC_RMX2450
+    mode: bridge
+    gain_canal_db: 34
+    charge: "clos, 2×15\" en série (16 Ω/caisse)"
+  - nom: HIGH
+    type: composants
+    sortie: 4
+    hp: BEYMA_CP650TI
+    hp_en_serie: 1
+    branches_paralleles: 2
+    ampli: QSC_RMX1450
+    mode: stereo
+    gain_canal_db: 32
+    charge: "CP650Ti sur EV HP640"
+  - nom: SUPER
+    type: composants
+    sortie: 5
+    hp: BEYMA_CP22
+    hp_en_serie: 2
+    branches_paralleles: 2
+    ampli: QSC_RMX1450
+    mode: stereo
+    gain_canal_db: 32
+    charge: "2×CP22 en série par coffret"
+
+# Crossover en service (validé par Louis, oct. 2026) — point de départ, à re-valider par mesure
+crossover:
+  SUB:    {hpf: null, lpf: "LR24 90 Hz"}
+  KICK:   {hpf: "LR24 90 Hz", lpf: "LR24 400 Hz"}
+  MEDIUM: {hpf: "LR24 400 Hz", lpf: "LR24 1600 Hz"}
+  HIGH:   {hpf: "LR24 1600 Hz", lpf: "LR12 18 kHz"}
+  SUPER:  {hpf: "10 kHz (type à relever)", lpf: null}
+  note: "Shelf +2 dB à 80 Hz (voicing bass-heavy). HPF SUB non relevé : OBLIGATOIRE (bass-reflex) — à relever sur la machine."
+
+# Dimensions extérieures des caisses (cm) — source : Louis (projet MA Sono). l = largeur face avant, p = profondeur, h = hauteur
+# telles que posées dans la pile. null = inconnu (dessin indicatif seulement).
+caisses:
+  SUB:    {l: 135, p: 71, h: 63, note: "couché"}
+  KICK:   {l: 69,  p: 51, h: 121}
+  MEDIUM: {l: 51,  p: 71, h: 121}
+  HIGH:   {l: 82,  p: 58, h: 48, note: "≈ 820 × 480 × 580 mm (CP650Ti + HP640)"}
+  SUPER:  {l: null, p: null, h: null, note: "coffret 2×CP22 — dimensions à relever"}

@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""
+dbx_hiqnet.py — Client réseau pour dbx DriveRack VENU360 / PA2 (protocole texte « HiQnet Console », TCP 19272).
+
+Protocole (sources : github.com/mkupferman/dbxdriverack-python pour la PA2,
+github.com/fiLLLip/dbx-venu360 pour le VENU360 ; capture Wireshark de l'appli officielle) :
+  1. TCP <ip>:19272, envoi d'une ligne vide -> l'appareil répond « HiQnet Console »
+  2. connect administrator "<mdp>"           -> « connect logged in as administrator »
+  3. Commandes texte terminées par \\n :
+       get  "<chemin>"                  -> get "<chemin>" "<valeur>"
+       set  "<chemin>" "<valeur>"       -> setr "<chemin>" "<valeur>"
+       ls   "<chemin>"                  -> lignes « clé : valeur » ... puis « endls »
+       sub  "<chemin>" / unsub          -> « subr » à chaque changement
+     Chemins : \\\\Preset\\<Module>\\SV\\<Param> (SV = valeurs, AT = attributs), \\\\Node\\AT\\Class_Name ...
+  4. JSON-RPC sur la même socket (VENU360) : {"id":"..","method":"Load","params":["1"]} (rappel preset),
+     {"id":"..","method":"Get","params":["1","100","presetName"]} (noms des presets).
+
+SÉCURITÉ — cet outil pilote un processeur relié à des amplis de plusieurs kW :
+  * Par défaut TOUT est en lecture seule. Une écriture exige --appliquer.
+  * Avant toute écriture : instantané automatique (journal/instantanes/), et journalisation (journal/ecritures.log).
+  * Écritures sur un chemin de protection (Limiter, HPF/HPType du crossover, Mute...) : refusées sans --protection-validee,
+    flag que Claude ne passe QUE si Louis a confirmé explicitement dans la conversation.
+  * Pas d'écriture pendant un concert. Réseau isolé uniquement.
+
+Usage :
+  python tools/dbx_hiqnet.py decouvrir                         # broadcast UDP 19272
+  python tools/dbx_hiqnet.py info     <ip>
+  python tools/dbx_hiqnet.py get      <ip> "\\\\Preset\\Crossover\\SV\\Band_1_HPFrequency"
+  python tools/dbx_hiqnet.py ls       <ip> "\\\\Preset"
+  python tools/dbx_hiqnet.py arbre    <ip> [--racine "\\\\Preset"] [--profondeur 4] [-o journal/arbre.json]
+  python tools/dbx_hiqnet.py carte    <ip> -o journal/instantanes/carte.json   # lit tous les chemins connus (VENU360)
+  python tools/dbx_hiqnet.py instantane <ip> -o journal/instantanes/avant.json
+  python tools/dbx_hiqnet.py diff     avant.json apres.json    # mode « apprentissage » : quel chemin a bougé ?
+  python tools/dbx_hiqnet.py ecouter  <ip> "\\\\Preset\\..."   # sub : affiche les changements en direct
+  python tools/dbx_hiqnet.py set      <ip> "<chemin>" "<valeur>" [--appliquer] [--protection-validee]
+  python tools/dbx_hiqnet.py presets  <ip>
+  python tools/dbx_hiqnet.py rappel   <ip> <n> [--appliquer]
+  python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer]                 # JSON-RPC Store : mémorise l'état dans le preset n
+  python tools/dbx_hiqnet.py rpc      <ip> <Methode> [params...]             # lecture libre, écriture avec --appliquer
+Carte complète des paramètres VENU360 : data/venu360_parametres.yaml (issue de l'appli v2.0.7).
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import re
+import shlex
+import socket
+import sys
+import time
+import uuid
+from pathlib import Path
+
+PORT = 19272
+RACINE = Path(__file__).resolve().parent.parent
+JOURNAL = RACINE / "journal"
+MOTS_PROTECTION = ("limiter", "hptype", "hpfrequency", "mute", "peakstop", "threshold", "polarity", "overshoot", "\\sv\\auto")
+CHEMINS_INTERDITS = ("password", "reboot", "\\node\\config\\sv\\command")
+RPC_LECTURE = {"Get", "GetInputRouterSourceNames", "PresetIsModified", "PresetRecallList"}
+RPC_INTERDITS = {"FactoryRestore", "BuildDB", "CopyPresets", "StorePresetFiles", "WizardChoicesDefault", "Delete", "DeletePreset"}
+CARTE = Path(__file__).resolve().parent.parent / "data" / "venu360_parametres.yaml"
+XO_PARAMS = ("HPFrequency", "HPType", "LPFrequency", "LPType", "Gain", "Polarity", "Phase")
+LIM_PARAMS = ("Limiter", "Threshold", "OverEasy", "Auto", "Attack", "Hold", "Release", "PeakStopPlus", "OvershootDb")
+PEQ_BANDE = ("Type", "Frequency", "Gain", "Q", "Slope")
+LIGNE_LS = re.compile(r"^\s*([^:]+?)\s*:\s*(.*?)\s*$")
+
+
+def _q(s: str) -> str:
+    return '"' + s.replace('"', '\\"') + '"'
+
+
+class Dbx:
+    def __init__(self, hote: str, port: int = PORT, mdp: str = "administrator", timeout: float = 3.0, verbose: bool = False):
+        self.hote, self.port, self.mdp, self.timeout, self.verbose = hote, port, mdp, timeout, verbose
+        self.sock: socket.socket | None = None
+        self._buf = ""
+
+    # ---------- transport ----------
+    def __enter__(self):
+        self.connecter()
+        return self
+
+    def __exit__(self, *_):
+        if self.sock:
+            try:
+                self.sock.close()
+            finally:
+                self.sock = None
+
+    def _envoyer(self, ligne: str) -> None:
+        if self.verbose:
+            print(f">> {ligne}", file=sys.stderr)
+        assert self.sock
+        self.sock.sendall((ligne + "\n").encode("utf-8"))
+
+    def _lire_ligne(self, timeout: float | None = None) -> str | None:
+        assert self.sock
+        fin = time.time() + (timeout if timeout is not None else self.timeout)
+        while "\n" not in self._buf:
+            reste = fin - time.time()
+            if reste <= 0:
+                return None
+            self.sock.settimeout(reste)
+            try:
+                bloc = self.sock.recv(8192)
+            except socket.timeout:
+                return None
+            if not bloc:
+                raise ConnectionError("Connexion fermée par l'appareil")
+            self._buf += bloc.decode("utf-8", errors="replace")
+        ligne, self._buf = self._buf.split("\n", 1)
+        ligne = ligne.rstrip("\r")
+        if self.verbose:
+            print(f"<< {ligne}", file=sys.stderr)
+        return ligne
+
+    def connecter(self) -> None:
+        self.sock = socket.create_connection((self.hote, self.port), timeout=self.timeout)
+        self._envoyer("")
+        fin = time.time() + self.timeout
+        while time.time() < fin:
+            l = self._lire_ligne()
+            if l and "HiQnet Console" in l:
+                break
+        else:
+            raise ConnectionError("Pas de bannière « HiQnet Console »")
+        self._envoyer(f"connect administrator {_q(self.mdp)}")
+        while True:
+            l = self._lire_ligne()
+            if l is None:
+                raise ConnectionError("Pas de réponse à l'authentification")
+            if l.startswith("connect logged in as"):
+                return
+            if l.startswith("error"):
+                raise PermissionError(f"Authentification refusée : {l}")
+
+    # ---------- commandes ----------
+    def get(self, chemin: str) -> str | None:
+        self._envoyer(f"get {_q(chemin)}")
+        cible = chemin.rstrip("\\")
+        while True:
+            l = self._lire_ligne()
+            if l is None:
+                return None
+            if l.startswith("error"):
+                raise ValueError(l)
+            parts = shlex.split(l, posix=False)
+            if len(parts) >= 3 and parts[0] in ("get", "subr") and parts[1].strip('"').rstrip("\\") == cible:
+                return parts[2].strip('"')
+
+    def ls(self, chemin: str) -> dict[str, str]:
+        self._envoyer(f"ls {_q(chemin)}")
+        res: dict[str, str] = {}
+        while True:
+            l = self._lire_ligne()
+            if l is None or l.strip() == "endls":
+                return res
+            if l.startswith("error"):
+                raise ValueError(l)
+            if l.startswith("ls "):
+                continue
+            m = LIGNE_LS.match(l)
+            if m:
+                res[m.group(1)] = m.group(2)
+            elif l.strip():
+                res[l.strip()] = ""
+
+    def set(self, chemin: str, valeur: str) -> str | None:
+        self._envoyer(f"set {_q(chemin)} {_q(valeur)}")
+        while True:
+            l = self._lire_ligne()
+            if l is None:
+                return None
+            if l.startswith("error"):
+                raise ValueError(l)
+            if l.startswith("setr"):
+                return l
+
+    def rpc(self, methode: str, params: list, attendre_fin: bool = True, timeout: float = 30) -> list[dict]:
+        rid = f"{uuid.uuid4()}_{methode.lower()}"
+        self._envoyer(json.dumps({"id": rid, "method": methode, "params": params}))
+        reps, fin = [], time.time() + timeout
+        while time.time() < fin:
+            l = self._lire_ligne(timeout=fin - time.time())
+            if l is None:
+                break
+            if l.startswith("{"):
+                try:
+                    j = json.loads(l)
+                except json.JSONDecodeError:
+                    continue
+                if j.get("id") == rid:
+                    reps.append(j)
+                    if not attendre_fin or j.get("done", True) is not False:
+                        break
+        return reps
+
+    def ecouter(self, chemin: str, duree: float) -> None:
+        self._envoyer(f"sub {_q(chemin)}")
+        fin = time.time() + duree
+        while time.time() < fin:
+            l = self._lire_ligne(timeout=fin - time.time())
+            if l:
+                print(f"{dt.datetime.now():%H:%M:%S.%f}"[:-3], l, flush=True)
+        self._envoyer(f"unsub {_q(chemin)}")
+
+    # ---------- carte des chemins connus (VENU360, issue de la décompilation de l'appli) ----------
+    def _essai(self, chemin: str) -> str | None:
+        try:
+            return self.get(chemin)
+        except ValueError:
+            return None
+
+    def carte(self, sorties=range(1, 7)) -> dict:
+        """Lit tous les chemins connus (data/venu360_parametres.yaml). Instance absente = sautée.
+        Sortie au même format que `arbre` pour pouvoir utiliser `diff`."""
+        ancien, self.timeout = self.timeout, min(self.timeout, 1.0)
+        res: dict = {}
+        try:
+            for k in sorties:
+                base = f"\\\\Preset\\CrossoverIIR{k}\\SV"
+                if self._essai(f"{base}\\Band_1_HPFrequency") is not None:
+                    noeud = {}
+                    for pref in [f"Band_{b}" for b in range(1, 7)] + ["Sub"]:
+                        if self._essai(f"{base}\\{pref}_HPFrequency") is None:
+                            continue
+                        for prm in XO_PARAMS:
+                            noeud[f"{pref}_{prm}"] = self._essai(f"{base}\\{pref}_{prm}")
+                    res[f"CrossoverIIR{k}"] = {"SV": noeud}
+                base = f"\\\\Preset\\PEQOut{k}\\SV"
+                if self._essai(f"{base}\\ParametricEQ") is not None:
+                    noeud = {"ParametricEQ": self._essai(f"{base}\\ParametricEQ")}
+                    for b in range(1, 9):
+                        for prm in PEQ_BANDE:
+                            noeud[f"Band_{b}_{prm}"] = self._essai(f"{base}\\Band_{b}_{prm}")
+                    res[f"PEQOut{k}"] = {"SV": noeud}
+                base = f"\\\\Preset\\Limiter{k}\\SV"
+                if self._essai(f"{base}\\Limiter") is not None:
+                    res[f"Limiter{k}"] = {"SV": {p: self._essai(f"{base}\\{p}") for p in LIM_PARAMS}}
+                base = f"\\\\Preset\\DelayOut{k}\\SV"
+                if self._essai(f"{base}\\Delay") is not None:
+                    res[f"DelayOut{k}"] = {"SV": {p: self._essai(f"{base}\\{p}") for p in ("Delay", "Amount")}}
+            for inst in ("OutputGains", "ZoneGains"):
+                base = f"\\\\Preset\\{inst}\\SV"
+                noeud = {}
+                for c in range(1, 7):
+                    for prm in ("Gain", "Mute"):
+                        v = self._essai(f"{base}\\Channel_{c}_{prm}")
+                        if v is not None:
+                            noeud[f"Channel_{c}_{prm}"] = v
+                if noeud:
+                    res[inst] = {"SV": noeud}
+            # Réglages d'appareil hors preset (appli Windows VENU360, classe Venu360Settings) :
+            # OutputNGain 0..6 = +4/+8/+12/+14/+17/+20/+22 dBu (défaut usine 2 = +12) ; InputNGain 0..3.
+            reglages = {}
+            for nom in [f"Output{c}Gain" for c in range(1, 7)] + [f"Input{c}Gain" for c in range(1, 4)] \
+                    + ["LoadedPresetName", "PresetIsModified", "MutesPowerup", "CurrentSampleRate"]:
+                v = self._essai(f"\\\\Node\\Settings\\SV\\{nom}")
+                if v is not None:
+                    reglages[nom] = v
+        finally:
+            self.timeout = ancien
+        out = {"\\\\Preset": res}
+        if reglages:
+            out["\\\\Node\\Settings"] = {"SV": reglages}
+        return out
+
+    # ---------- exploration ----------
+    def arbre(self, racine: str = "\\\\Preset", profondeur: int = 4) -> dict:
+        """Parcours récursif par ls. Les nœuds SV/AT sont lus comme feuilles.
+        Format exact des sorties ls du VENU360 non documenté : le brut est conservé pour analyse."""
+        vus: set[str] = set()
+
+        def visiter(chemin: str, p: int) -> dict:
+            if chemin in vus or p < 0:
+                return {}
+            vus.add(chemin)
+            try:
+                enfants = self.ls(chemin)
+            except ValueError as e:
+                return {"_erreur": str(e)}
+            noeud: dict = {"_ls": enfants}
+            for cle in enfants:
+                nom = cle.strip().rstrip("\\")
+                if not nom or nom.startswith("_"):
+                    continue
+                sous = f"{chemin}\\{nom}"
+                if nom in ("SV", "AT"):
+                    continue
+                noeud[nom] = visiter(sous, p - 1)
+            for feuille in ("SV", "AT"):
+                try:
+                    v = self.ls(f"{chemin}\\{feuille}")
+                    if v:
+                        noeud[feuille] = v
+                except ValueError:
+                    pass
+            return noeud
+
+        return {racine: visiter(racine, profondeur)}
+
+
+# ---------- instantanés & diff ----------
+def aplatir(d: dict, prefixe: str = "") -> dict[str, str]:
+    out: dict[str, str] = {}
+    for k, v in d.items():
+        if k in ("_ls", "_meta"):
+            continue
+        chemin = f"{prefixe}\\{k}" if prefixe else k
+        if isinstance(v, dict):
+            out.update(aplatir(v, chemin))
+        else:
+            out[chemin] = v
+    return out
+
+
+def diff(a: dict, b: dict) -> list[tuple[str, str | None, str | None]]:
+    fa, fb = aplatir(a), aplatir(b)
+    return [(k, fa.get(k), fb.get(k)) for k in sorted(set(fa) | set(fb)) if fa.get(k) != fb.get(k)]
+
+
+def journaliser(texte: str) -> None:
+    JOURNAL.mkdir(exist_ok=True)
+    with (JOURNAL / "ecritures.log").open("a", encoding="utf-8") as f:
+        f.write(f"{dt.datetime.now().isoformat(timespec='seconds')} {texte}\n")
+
+
+def est_protection(chemin: str) -> bool:
+    c = chemin.lower()
+    return any(m in c for m in MOTS_PROTECTION)
+
+
+def decouvrir(timeout: float = 3.0) -> list[tuple[str, str]]:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.bind(("", 0))
+    for c in ("delay 100", 'get "\\\\Node\\AT\\Class_Name"', 'get "\\\\Node\\AT\\Instance_Name"', 'get "\\\\Node\\AT\\Software_Version"'):
+        s.sendto((c + "\n").encode(), ("<broadcast>", PORT))
+    s.settimeout(timeout)
+    res = []
+    try:
+        while True:
+            data, addr = s.recvfrom(2048)
+            res.append((addr[0], data.decode("utf-8", "replace").strip()))
+    except socket.timeout:
+        pass
+    return res
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set", "presets", "rappel", "stocker", "rpc"])
+    ap.add_argument("args", nargs="*")
+    ap.add_argument("--mdp", default="administrator")
+    ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--racine", default="\\\\Preset")
+    ap.add_argument("--profondeur", type=int, default=4)
+    ap.add_argument("--duree", type=float, default=60)
+    ap.add_argument("-o", "--sortie")
+    ap.add_argument("--appliquer", action="store_true", help="autorise l'écriture (sinon simulation)")
+    ap.add_argument("--protection-validee", action="store_true", help="Louis a validé l'écriture d'un paramètre de protection")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    # valeurs négatives (« -2.0dB ») : les protéger d'argparse
+    argv = [("\x00" + t) if re.match(r"^-\d", t) else t for t in sys.argv[1:]]
+    a = ap.parse_args(argv)
+    a.args = [t[1:] if t.startswith("\x00") else t for t in a.args]
+
+    if a.cmd == "decouvrir":
+        for ip, l in decouvrir():
+            print(ip, l)
+        return
+    if a.cmd == "diff":
+        av, ap_ = (json.loads(Path(p).read_text(encoding="utf-8")) for p in a.args[:2])
+        for k, x, y in diff(av, ap_):
+            print(f"{k}\n    avant : {x}\n    après : {y}")
+        return
+
+    ip = a.args[0]
+    with Dbx(ip, a.port, a.mdp, verbose=a.verbose) as d:
+        if a.cmd == "info":
+            for c in ("Class_Name", "Instance_Name", "Software_Version"):
+                print(c, ":", d.get(f"\\\\Node\\AT\\{c}"))
+        elif a.cmd == "get":
+            print(d.get(a.args[1]))
+        elif a.cmd == "ls":
+            for k, v in d.ls(a.args[1]).items():
+                print(f"{k} : {v}")
+        elif a.cmd in ("arbre", "instantane", "carte"):
+            t = d.arbre(a.racine, a.profondeur) if a.cmd == "arbre" else d.carte()
+            t["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds")}
+            out = Path(a.sortie or JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}.json")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(t, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Écrit : {out} ({len(aplatir(t))} valeurs)")
+        elif a.cmd == "ecouter":
+            d.ecouter(a.args[1], a.duree)
+        elif a.cmd == "presets":
+            for r in d.rpc("Get", ["1", "100", "presetName"]):
+                for k, v in sorted((r.get("result") or {}).items(), key=lambda t: int(t[0])):
+                    print(f"{k}: {v}")
+        elif a.cmd == "rappel":
+            if not a.appliquer:
+                print(f"SIMULATION : rappel du preset {a.args[1]} (ajouter --appliquer). Couper les amplis ou muter avant un rappel.")
+                return
+            journaliser(f"RAPPEL preset {a.args[1]} sur {ip}")
+            for r in d.rpc("Load", [str(a.args[1])]):
+                print(r.get("result"), r.get("error") or "")
+        elif a.cmd == "stocker":
+            n = str(a.args[1])
+            if not a.appliquer:
+                print(f"SIMULATION : mémoriser l'état courant dans le preset {n} (ÉCRASE ce preset). Ajouter --appliquer.")
+                return
+            journaliser(f"STORE preset {n} sur {ip}")
+            for r in d.rpc("Store", [n]):
+                print(r.get("result"), r.get("error") or "")
+        elif a.cmd == "rpc":
+            methode, params = a.args[1], a.args[2:]
+            if methode in RPC_INTERDITS:
+                sys.exit(f"REFUS : {methode} est irréversible ou destructif — à faire depuis l'appli officielle, en connaissance de cause.")
+            if methode not in RPC_LECTURE and not a.appliquer:
+                print(f"SIMULATION : {methode} {params} (méthode d'écriture — ajouter --appliquer).")
+                return
+            if methode not in RPC_LECTURE:
+                journaliser(f"RPC {methode} {params} sur {ip}")
+            print(json.dumps(d.rpc(methode, params), ensure_ascii=False, indent=1))
+        elif a.cmd == "set":
+            chemin, valeur = a.args[1], a.args[2]
+            if any(m in chemin.lower() for m in CHEMINS_INTERDITS):
+                sys.exit("REFUS : chemin système (mot de passe, reboot, commande de config).")
+            avant = d.get(chemin)
+            print(f"{chemin}\n  actuel : {avant}\n  demandé : {valeur}")
+            if est_protection(chemin) and not a.protection_validee:
+                sys.exit("REFUS : paramètre de PROTECTION. Il faut la validation explicite de Louis (--protection-validee).")
+            if not a.appliquer:
+                print("SIMULATION — rien n'a été écrit (ajouter --appliquer).")
+                return
+            snap = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-avant-set.json"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            snap.write_text(json.dumps({chemin: avant}, ensure_ascii=False), encoding="utf-8")
+            r = d.set(chemin, valeur)
+            apres = d.get(chemin)
+            journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]")
+            print(f"  relu : {apres}")
+
+
+if __name__ == "__main__":
+    main()

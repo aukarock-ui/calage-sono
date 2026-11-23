@@ -1,0 +1,21 @@
+# EXEMPLE FICTIF — pour voir le rendu de tools/plan_3d.py. Ne correspond à aucun événement réel.
+evenement: {nom: "Exemple — plein air 2 piles", date: null}
+style: {principal: tekno, source: dj, niveau_vise_dbA_regie: 100}
+reglementation: {laeq15_max_dbA: 102, lceq15_max_dbC: 118}
+lieu:
+  nom: "Prairie (exemple)"
+  type: exterieur
+  sol: herbe
+  meteo_prevue: {temperature_c: 24, humidite_pct: 55, vent: faible}
+public:
+  jauge: 800
+  zone: {profondeur_m: 30, largeur_m: 20, distance_premier_rang_m: 3}
+regie: {x_m: 1, distance_scene_m: 22, hauteur_m: 0}
+systeme:
+  config: ma-sono-actuel
+  disposition: "2 piles mono gauche/droite au sol devant la scène"
+  piles:
+    - {nom: G, position: {x_m: -5, y_m: 0}, orientation_deg: 0, hauteur_sol_m: 0, empilement_bas_en_haut: [SUB, KICK, KICK, MEDIUM, HIGH, SUPER]}
+    - {nom: D, position: {x_m: 5, y_m: 0}, orientation_deg: 0, hauteur_sol_m: 0, empilement_bas_en_haut: [SUB, KICK, KICK, MEDIUM, HIGH, SUPER]}
+  subs: {configuration: empilés}
+mesure: {logiciel: OSM}

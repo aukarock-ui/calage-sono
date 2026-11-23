@@ -1,0 +1,80 @@
+# FICHE ÉVÉNEMENT — modèle. Copier en data/evenements/AAAA-MM-JJ_<lieu>.yaml et remplir avec Louis.
+# null = pas encore renseigné. Toute distance en mètres, mesurée (télémètre / décamètre), pas estimée à l'œil.
+
+evenement:
+  nom: null
+  date: null                      # AAAA-MM-JJ
+  horaires: null                  # ex. "20:00-02:00"
+  organisateur: null
+  contact_technique: null
+
+style:
+  principal: null                 # punk | metal | hip-hop | reggae-dub | techno | tekno | noise | autre
+  secondaires: []
+  source: null                    # live | dj | mixte
+  niveau_vise_dbA_regie: null     # LAeq 15 min visé à la régie
+  remarques: null                 # ex. « kick très présent demandé », « voix rap prioritaire »
+
+reglementation:                   # France : décret 2017-1244 (lieux recevant du public, son amplifié)
+  laeq15_max_dbA: 102
+  lceq15_max_dbC: 118
+  # niveaux à ne dépasser « à aucun moment et en aucun endroit accessible au public »
+  enregistrement_affichage_dbA_dbC: null  # obligatoire pour les festivals et lieux > 300 places (conservation 6 mois)
+  limite_voisinage: null          # étude d'impact, arrêté municipal/préfectoral, horaires
+  activite_destinee_enfants_6_ans: null   # si oui : 94 dB(A) / 104 dB(C) sur 15 min
+
+lieu:
+  nom: null
+  adresse: null
+  type: null                      # exterieur | interieur | chapiteau | hangar
+  dimensions_m: {longueur: null, largeur: null, hauteur: null}   # intérieur / chapiteau
+  sol: null                       # herbe, béton, terre, parquet…
+  surfaces_reflechissantes: null  # murs, bâtiments, façades proches (distance, orientation)
+  meteo_prevue: {temperature_c: null, humidite_pct: null, vent: null}
+  alimentation: null              # ex. « P17 32 A tri », groupe électrogène
+
+public:
+  jauge: null
+  zone: {profondeur_m: null, largeur_m: null, distance_premier_rang_m: null}
+  debout_assis: null
+
+regie:
+  x_m: 0                          # position latérale (0 = centre)
+  distance_scene_m: null
+  hauteur_m: null
+  console: null                   # ex. StudioLive 32SC
+
+systeme:
+  config: null                    # nom du fichier de data/configs/ (sans .yaml) ; système inconnu → skill nouveau-systeme
+  disposition: null               # ex. « 2 piles mono gauche/droite », « pile centrale »
+  piles:
+    - nom: G
+      position: {x_m: null, y_m: null}     # repère : centre du bord de scène = (0,0), x vers la droite vu de la régie, y vers le public ; (x, y) = milieu de la FACE AVANT de la pile
+      hauteur_sol_m: 0                     # 0 = posée au sol ; sinon hauteur du praticable
+      orientation_deg: 0
+      empilement_bas_en_haut: [SUB, KICK, KICK, MEDIUM, HIGH, SUPER]
+      hauteur_haut_de_pile_m: null
+      angle_site_tetes_deg: null
+  subs:
+    configuration: null           # empilés | ligne au sol | cardioide (préciser) | arc
+    espacement_m: null
+  front_fills: null
+  retours_scene: null             # nombre, type, ampli, processeur
+
+mesure:
+  logiciel: OSM                   # OSM | mesure_tf | REW
+  micro: null                     # modèle + fichier de calibration
+  interface: null
+  positions_micro:                # au moins 3 pour l'EQ, 1 sur l'axe de sommation pour l'alignement
+    - {nom: P1, x_m: null, y_m: null, hauteur_m: 1.6, role: "alignement"}
+    - {nom: P2, x_m: null, y_m: null, hauteur_m: 1.6, role: "eq"}
+    - {nom: P3, x_m: null, y_m: null, hauteur_m: 1.6, role: "eq"}
+  temps_dispo_calage_min: null
+
+reseau:
+  venu360_ip: null
+  pa2_ip: null
+  pc_ip: null
+  osm_hote: null
+
+notes: null

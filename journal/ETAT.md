@@ -1,0 +1,116 @@
+# ÉTAT DU SYSTÈME — journal vivant (le plus récent en haut)
+
+Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
+Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
+
+## 2026-11-23 (suite 3) — Manuels officiels (dossier Téléchargements) recoupés avec le kit
+- **VENU360** (manuel 5058681-C) : table 0 dBFS par réglage de sortie (p. 10) = celle du kit, confirmée. Limiteur −60…0,
+  OverEasy, Auto, PeakStopPlus (OFF = détection RMS, ON = crête), OVERSHOOT 2–6 dB. La procédure dbx (p. 53-54) règle
+  les seuils à l'écrêtage de l'ampli, HP débranchés, overshoot 3.
+- **PA2** (manuel FR 5044138-A) : 0 dBFS = +19,9 dBu en sortie (p. 8) ; limiteurs PeakPlus = RMS + pics jusqu'à **+3 dB
+  au-dessus du seuil**, le manuel demande un « coussin » de 3 dB (p. 44). Bibliothèque d'amplis : RMX2450 présent,
+  PL380 et PLX3002 absents (« Not Listed » ⇒ limiteurs non réglés par le Wizard).
+- **Correction de méthode** : `calc_systeme.py` retire désormais l'overshoot du seuil dBFS (dbx). Avec le défaut 6 dB
+  et le réglage +22 : SUB −23,1 · KICK −26,1 · MEDIUM −28,1 · HIGH −31,1 · SUPER −30,1 dBFS (brut −17,1/−20,1/−22,1/
+  −25,1/−24,1). Nouveau champ de config `processeur_overshoot_db` (à lire par `carte`). L'unité de seuil de la
+  bibliothèque prime sur celle de la config (alerte si elles diffèrent).
+- **t.racks DSP 206** (manuel Thomann v4 EN/FR) : limiteur « TH −90…+20 dB » (crête) — plage = codage du kit ; mais
+  **sortie max annoncée +5 dBu** contre +20 dBu mesurés sur un 408. Contradiction non tranchée → voltmètre. Alerte
+  ajoutée si seuil dBu > plus basse pleine échelle connue.
+- DCX2496 (QSG) : rien de neuf sur le 0 dB du limiteur. DBX.rar = PA2Setup 1.1.4 (installeur, non exécuté).
+
+## 2026-11-23 (suite 2) — Logiciels DCX2496 du Drive analysés (sans matériel)
+- DCX-Remote 1.16/1.16a + aide officielle : liaison 38400 8N1 confirmée. **Liens** : Out Stereo Link recopie
+  les réglages (limiteur et délai court compris) sur la sortie couplée de même type, et l'activer écrase les sorties
+  couplées. → `dcx2496.py set` refuse d'écrire si un lien est actif (`--lien-accepte`), alerte en cas de propagation,
+  et les paramètres `*Link*` deviennent des paramètres de protection. Autotest étendu, OK.
+- Limiteur DCX = écrêteur de crêtes (aide officielle) → pas de protection thermique : ajouté à `methode-calage` (§8).
+- `methode-calage` §5 mis en cohérence : grossier sur l'IR, fin sur la phase.
+- Firmwares 1.16 / 1.18A : chiffrés/compressés, inexploitables (le kit ne flashe pas).
+- DBX.rar (123 Mo) : trop gros pour le connecteur Drive (limite 10 Mo) → pas encore analysé.
+
+## 2026-11-23 (suite) — REW intégré + éditeur t.racks recoupé (méthode, sans matériel)
+- Consigne de Louis : pas de test en direct pour l'instant, on finit la méthode.
+- **`tools/rew_client.py`** : REW piloté par son API REST (5.40 b121, API 0.9.4, doc relevée dans `docs/rew_api_5.40b121.json`).
+  Lecture FR/IR, alignement (Align IRs + Align phase), import d'IR, mesure par sweep verrouillée (`--appliquer`, ≤ −10 dBFS,
+  arrêt sur écrêtage forcé). `autotest` OK sans son (IR synthétiques importées puis supprimées).
+  Les appels `mesurer` (niveau, nom, commande SPL) suivent la doc Swagger mais n'ont pas été exécutés.
+- **Règle de méthode ajoutée (skill mesure-acoustique)** : alignement IR d'abord, phase ensuite. Démonstration :
+  B = +1,5 ms inversée → phase seule à 300 Hz : +0,13 ms non inversé (faux, un cycle d'écart) ; IR : −1,5 ms inversé (juste).
+- **Éditeur t.racks V1.05 décortiqué (statique)** : port 9761 confirmé dans le code, découverte UDP 30303, IP d'usine
+  192.168.1.101, codage du gain confirmé par 2 sources, bornes freq/Q/PEQ et 9 types cohérents avec le kit.
+  Seuil limiteur en dBu toujours non confirmé. Second protocole RS-232 « Extend Remote Control » (7B 7D…) documenté
+  (`docs/protocoles-autres.md`). Nouvelle commande `tracks_dsp.py chercher` (UDP 30303) — écrite, pas encore essayée.
+
+## 2026-11-23 — Kit installé sur le PC de Louis + appli VENU360 Windows analysée
+- Copie locale : `C:\Users\aukar\Documents\Optimisation pc claude code\calage-sono` (Google Drive pour ordinateur absent :
+  le journal n'est PAS synchronisé tout seul, le renvoyer sur le Drive en fin de session).
+- Dépendances installées, autotests OK : `calc_systeme`, `mesure_tf autotest`, `dbx_hiqnet info/carte` contre `faux_venu360`.
+- Logiciels déjà présents : Open Sound Meter 1.5.2, REW 5.40 b121, Smaart 9.1.6, VENU360 (Windows), DriveRack PA2 app,
+  éditeur t.racks DSP 206 V1.05, Universal Control / Capture 3, pilotes Focusrite. Absents : Wireshark/Npcap, Java, 7-Zip.
+  Aucune interface audio pro branchée au moment de l'inventaire (seulement Realtek + Bluetooth).
+- **Découverte (appli Windows VENU360, dictionnaire `Venu360Settings`)** : le niveau de sortie analogique est
+  `\\Node\Settings\SV\Output<1-6>Gain`, index 0…6 = +4/+8/+12/+14/+17/+20/+22 dBu, **défaut usine 2 = +12 dBu**.
+  Réglage d'appareil (hors preset). `dbx_hiqnet.py carte` le lit maintenant (section `\\Node\Settings`).
+  Conséquence : si la sortie est restée à +12, les seuils calculés pour +22 (SUB −17,1 …) protègent ~10 dB de trop
+  (sans danger, mais on perd la marge) ; à +12 le script donne SUB −7,4 · KICK −10,4 · MEDIUM −12,4 · HIGH −15,4 ·
+  SUPER −14,4 dBFS. Le danger est l'inverse : appliquer des seuils « +12 » sur une sortie à +22.
+  → **Lire `carte` avant toute écriture de limiteur et caler `processeur_reglage_sortie` sur la valeur lue.**
+- 44 dictionnaires de classes DSP (min/max/défauts officiels) rangés dans `data/protocoles/venu360_windows_classes/`.
+  Limiteur confirmé identique à l'analyse Android (PeakStopPlus actif par défaut, overshoot 6 dB).
+
+## 2026-11-22 (soir, suite) — Kit généralisé à toute sono
+- Le kit n'est plus lié à la MA Sono : un fichier par système (`data/configs/`, modèle `_modele-systeme.yaml`), types
+  composants / constructeur / amplifiée / mixte ; bibliothèque de composants partagée (`data/materiel.yaml`).
+- Nouveau skill `nouveau-systeme` ; `docs/processeurs.md` (pilotage réseau / protocole à intégrer / feuille de saisie).
+- `calc_systeme.py` : unité de seuil par processeur (dBFS, dBu, V), voies constructeur non recalculées.
+- `plan_3d.py` : voies, couleurs et procédure tirées de la config (plus de noms SUB/KICK… codés en dur) ;
+  micro au sol pour les voies coupées ≤ 500 Hz. Nouveau : générateur de plan 3D + positions micro.
+
+## 2026-11-22 (soir) — Mesure open source + fiche événement
+- Moteur de mesure principal : Open Sound Meter (open source). Claude lit magnitude/phase/cohérence/RI en direct
+  via `tools/osm_client.py` (protocole lu dans le code source d'OSM, testé contre un simulateur).
+- Nouveau skill `fiche-evenement` + modèle `data/evenements/_modele.yaml` (lieu, piles, public, style, réglementation
+  102 dB(A)/118 dB(C), positions micro, réseau).
+
+## 2026-11-22 (après-midi) — Appli VENU360 décompilée
+- Appli Android harman.hpro.venu360 v2.0.7 (Qt/C++) analysée : carte complète des paramètres → data/venu360_parametres.yaml.
+- Nouveaux outils : `dbx_hiqnet.py carte` (lecture de tout l'état connu), `stocker` (JSON-RPC Store), `rpc` (méthodes
+  destructives bloquées). Simulateur aligné sur la structure réelle (Mono 5-Way, PEQOut/Limiter/DelayOut 1–6).
+- À vérifier à la première connexion : PeakStopPlus (actif par défaut dans l'appli, overshoot 6 dB) sur chaque sortie ;
+  config crossover (Mono 5-Way ou 4-Way + Sub) ; numéro d'instance = numéro de sortie ?
+
+## 2026-11-22 — Création du kit (conversation Claude, projet MA Sono)
+- Kit créé : méthode, base matériel, calculs, client réseau dbx, mesure double canal.
+- Protocole VENU360 identifié : texte « HiQnet Console » TCP 19272, identique à la PA2 (cf. docs/protocole-dbx.md).
+- **Correction** : les seuils de limiteur du 05/11 (« seuil = dBu − gain ampli ») omettaient la conversion en dBFS
+  (−22,1 dB au réglage +22) et le +6 dB du bridge. Valeurs recalculées par `calc_systeme.py` (config actuelle,
+  réglage de sortie +22 supposé) : SUB −17,1 · KICK −20,1 · MEDIUM −22,1 · HIGH −25,1 · SUPER −24,1 dBFS.
+  À CONFIRMER : réglage de sortie réel du Venu360, gains ampli au voltmètre.
+- Les tensions cibles aux bornes de la refonte (109,5 / 77,5 / 38,7 / 21,9 / 12,2 V) sont confirmées par le script.
+- Config actuelle SUPER : 2 CP22 en série par coffret ⇒ cible 24,5 V aux bornes ampli (12,2 V par HP).
+
+## 2026-11-22 — Trois nouveaux processeurs (DCX2496, t.racks DSP 206, Linea ASC-48)
+- `tools/dcx2496.py` : RS-232 (null-modem), table de 49 paramètres (dcx-ui, MIT). Lecture complète et écriture relue par dump.
+- `tools/tracks_dsp.py` : TCP 9761, d'après la synthèse de protocole de tracks-dsp-controller (vérifiée sur un 408, 206 décodé
+  depuis des captures). **Seuils de limiteur en dBu.**
+- `tools/linea_tipi.py` : TIPI TCP 51456, couverture partielle (méthodes à sonder). Le crossover et les limiteurs restent dans System Engineer.
+- Les trois sont testés sur simulateur, pas encore sur l'appareil.
+
+## Questions ouvertes
+- [ ] Réglage « analog output gain » des sorties du Venu360 (+4 … +22) — chemin trouvé (`\\Node\Settings\SV\OutputNGain`), reste à le lire sur la machine (`carte`).
+- [ ] Gains réels des amplis en bridge (PL380, PLX3002, RMX2450) — mesure voltmètre.
+- [ ] HPF actuel du SUB (obligatoire en bass-reflex) et type du HPF SUPER.
+- [ ] Accord réel des évents des caisses actuelles (mesure d'impédance).
+- [ ] Norme des 250 W des SM118/SM115 1re gén. (RMS brochure ≠ AES).
+- [x] Cartographie des chemins réseau du Venu360 (depuis l'appli) — [ ] confirmation sur la machine (`carte`).
+- [ ] Interface audio et micro de mesure disponibles (modèles, calibration) pour OSM ?
+- [ ] Specs IMG STA-400D à saisir.
+- [ ] DCX2496 : 0 dB du limiteur = +22 dBu en sortie ? (voltmètre, sinus 1 kHz) ; première lecture `lire` à comparer à l'écran.
+- [ ] DSP 206 : ID façade, firmware (V0104P ?), PIN éventuel ; **pleine échelle +5 (manuel) ou +20 dBu (408 mesuré) ?** et unité du seuil (voltmètre) ; essayer `chercher` (UDP 30303).
+- [ ] VENU360 : OVERSHOOT PeakStopPlus réel de chaque sortie (`carte`) → `processeur_overshoot_db`.
+- [ ] REW : premier `mesurer` réel (vérifier nom/niveau appliqués, interface audio en ASIO plutôt que Java).
+- [ ] ASC-48 : résultat de `sonder` (méthodes TIPI réellement disponibles).
+
+## Réglages validés sur le terrain
+(aucun pour l'instant)

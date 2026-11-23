@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+# Données de terrain et sauvegardes d'appareils : restent sur le PC / le Drive
+journal/instantanes/
+journal/ecritures.log
+mesures/*
+!mesures/.gitkeep
+*.wav
+*.mdat
+# Réglages locaux de Claude Code
+.claude/settings.local.json

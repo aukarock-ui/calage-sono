@@ -1,0 +1,94 @@
+# =====================================================================
+# Carte des paramètres réseau du dbx DriveRack VENU360
+# Source : décompilation de l'appli Android officielle harman.hpro.venu360 v2.0.7 (22/11/2026),
+#          définitions « ProcessingObject » embarquées dans libVENU360_arm64-v8a.so + presets d'usine.
+# Statut : déduit du code de l'appli. Chaque chemin doit être CONFIRMÉ par `dbx_hiqnet.py get` sur la machine
+#          avant la première écriture (la numérotation des instances dépend de la configuration chargée).
+# Syntaxe : get "\\Preset\<Instance>\SV\<Paramètre>"   (AT au lieu de SV pour les attributs)
+# =====================================================================
+
+instances_sortie:          # « # » = numéro d'instance (1…6) attribué par le constructeur de config
+  crossover:  "CrossoverIIR#"   # classe Venu360Crossover — UNE instance couvre toutes les voies d'un crossover multi-voies
+  peq:        "PEQOut#"         # classe DriveRackPEQ (8 bandes)
+  limiteur:   "Limiter#"        # classe dbxVenuLimiter (1 canal)
+  delai:      "DelayOut#"       # classe DriveRackDelay (max 1000 ms)
+  gains_zone: "ZoneGains"       # classe DriveRackGain, 6 canaux
+  gains_sortie: "OutputGains"   # classe DriveRackGain, 6 canaux
+  generateur: "SignalGenerator" # (nom exact d'instance à confirmer)
+
+crossover:   # \\Preset\CrossoverIIR<k>\SV\...
+  attributs_AT: [Format, NumMainCabinets, NumBands, SubFormat, NumSubCabinets]   # Format 1=Mono 2=Stéréo 3=LCR ; SubFormat 0=aucun 1=Mono 2=Stéréo 3=LCR 4=Aux
+  ordre_bandes: "Band_1 = voie la plus AIGUË (HIGH) … Band_N = la plus grave ; voie sub séparée = préfixe Sub_"
+  types_config: ["Mono 5-Way : sorties M HIGH, M MID-HIGH, M MID, M LOW-MID, M LOW", "Mono 6-Way : + M SUB-LOW"]
+  par_bande:   # Band_<n>_<param>  et  Sub_<param>
+    HPFrequency: {min: "15.9Hz", max: "20000Hz", note: "< 16 Hz => filtre bypassé, affiché « Out »", exemples: ["35Hz", "2.5kHz", "Out"]}
+    HPType:      {enum: ["BW 6","BW 12","BW 18","BW 24","BW 30","BW 36","BW 42","BW 48","LR 12","LR 24","LR 36","LR 48"]}
+    LPFrequency: {min: "16Hz", max: "20100Hz", note: "au-dessus de 20 kHz => « Out »"}
+    LPType:      {enum: ["BW 6","BW 12","BW 18","BW 24","BW 30","BW 36","BW 42","BW 48","LR 12","LR 24","LR 36","LR 48"]}
+    Gain:        {min: -60.0, max: 20.0, unite: dB, exemple: "0.0dB"}
+    Polarity:    {enum: ["Normal", "Inverted"]}
+    Phase:       {min: -180.0, max: 0.0, unite: deg, exemple: "0 deg"}
+
+peq_sortie:  # \\Preset\PEQOut<k>\SV\...
+  ParametricEQ: {enum: ["Off", "On"]}
+  Flatten:      {enum: ["Restore", "Flat"], note: "commande, non stockée dans le preset"}
+  par_bande:    # Band_<1-8>_<param>
+    Frequency: {min: "20Hz", max: "22kHz", exemple: "1kHz"}
+    Gain:      {min: -20.0, max: 20.0, unite: dB}
+    Q:         {min: 0.1, max: 16.0}
+    Slope:     {min: 3.0, max: 15.0, unite: "dB/oct", note: "shelfs seulement"}
+    Type:      {enum: ["Bell", "Low Shelf", "High Shelf"]}
+
+limiteur:    # \\Preset\Limiter<k>\SV\...
+  Limiter:      {enum: ["Off", "On"]}
+  Threshold:    {min: -60.0, max: 0.0, unite: dBFS, defaut: 0.0}
+  OverEasy:     {enum: ["Off","1","2","3","4","5","6","7","8","9","10"]}
+  Auto:         {enum: ["Off", "On"]}
+  Attack:       {min: 0.1, max: 200.0, unite: ms, defaut: 10.0}
+  Hold:         {min: 0.0, max: 500.0, unite: ms, defaut: 0.0}
+  Release:      {min: 5.0, max: 360.0, unite: "dB/s", defaut: 45.0}
+  PeakStopPlus: {enum: ["Off", "On"], defaut: "On", note: "ACTIF PAR DÉFAUT dans l'appli"}
+  OvershootDb:  {min: 2.0, max: 6.0, unite: dB, defaut: 6.0}
+  capteurs_lecture_seule: [ThresholdMeter, GainReductionMeter, MaxInputLevel]   # utiles pour surveiller la réduction de gain via sub
+
+delai_sortie: # \\Preset\DelayOut<k>\SV\...
+  Delay:  {enum: ["Off", "On"]}
+  Amount: {min: "0s", max: "1000ms", note: "format texte avec unité ; relire le format exact avec get avant d'écrire"}
+
+gains:       # \\Preset\OutputGains\SV\Channel_<1-6>_<param>   (idem ZoneGains)
+  Gain: {min: -120.0, max: 20.0, unite: dB}
+  Mute: {enum: ["Off", "On"], ecriture: "\"0\"/\"1\" acceptés (cf. fiLLLip)"}
+
+generateur:  # SignalGenerator — non stocké dans les presets
+  "Signal Generator": {enum: ["Off", "On"]}
+  "Signal Type":      {enum: ["Pink", "White", "Sine"]}
+  "Signal Amplitude": {min: -60, max: 0, unite: dB, defaut: -60}
+  "Sine Frequency":   {min: "20Hz", max: "20kHz"}
+  "Signal Route":     {enum: ["In1","In2","In3","In4","In5","In6","In7","All"]}
+
+noeud:       # \\Node\...
+  identite: ["\\\\Node\\AT\\Class_Name", "\\\\Node\\AT\\Instance_Name", "\\\\Node\\AT\\Software_Version", "\\\\Node\\SV\\HardwareVersion", "\\\\Node\\SV\\DeviceName"]
+  config:   ["\\\\Node\\Config\\SV\\Command", "\\\\Node\\Config\\SV\\Config", "\\\\Node\\Config\\SV\\Result", "\\\\Node\\Config\\SV\\Progress"]
+  dangereux: ["Password", "Reboot"]
+
+json_rpc:    # {"id":"<uuid>_x","method":"<M>","params":[...]}
+  lecture:  [Get, GetInputRouterSourceNames, PresetIsModified, PresetRecallList, LoadedPresetID, LoadedPresetName]
+  rappel:   [Load]                       # params ["<n>"]
+  ecriture: [Store, SetPresetName, SetPreset, EnDisAutoSave, CopyObjectSVs]   # Store ["<n>"] = mémoriser l'état courant dans le preset n
+  interdits_sans_accord_ecrit: [FactoryRestore, BuildDB, CopyPresets, StorePresetFiles, WizardChoicesDefault, "suppression de preset"]
+
+# ---------------------------------------------------------------------
+# Réglages d'APPAREIL (hors preset) — source : appli Windows VENU360 installée sur le PC de Louis
+# (C:\Program Files (x86)\Harman\dbx\DriveRack VENU360\VENU360\VENU360.exe), classe Venu360Settings,
+# dictionnaire extrait le 23/11/2026 -> data/protocoles/venu360_windows_classes/Venu360Settings_*.xml
+# ---------------------------------------------------------------------
+reglages_appareil:   # \Node\Settings\SV\<Nom>  (InPreset=false : NE change PAS avec le rappel de preset)
+  OutputGain:   # Output1Gain … Output6Gain = « analog output gain » de chaque sortie
+    chemin: "\\Node\Settings\SV\Output<1-6>Gain"
+    index: {0: "+4 dBu", 1: "+8 dBu", 2: "+12 dBu", 3: "+14 dBu", 4: "+17 dBu", 5: "+20 dBu", 6: "+22 dBu"}
+    defaut: 2      # = +12 dBu en sortie d'usine (et NON +22)
+    note: "Ordre des libellés lu dans l'exe (table « Gain | +4 dBu … +22 dBu »). Le format de la valeur renvoyée par get (index ou libellé) reste à confirmer sur la machine. L'assistant de configuration (Wizard) le règle selon l'ampli choisi."
+  InputGain:    {chemin: "\\Node\Settings\SV\Input<1-3>Gain", plage: [0, 3], defaut: 1, note: "libellés à confirmer"}
+  autres: [LoadedPresetID, LoadedPresetName, PresetIsModified, PresetPowerup, MutesPowerup, AESCh12Input, AESCh34Input,
+           AESCh12SRC, AESCh34SRC, SampleRateReference, CurrentSampleRate, AESCh12Status, AESCh34Status, PresetRecallList]
+limiteur_confirmation_windows: "dbxVenuLimiter : Threshold -60…0 ; OverEasy 0…10 ; Attack 0,1…200 ms ; Hold 0…500 ms ; Release 5…360 ; PeakStopPlus défaut 1 (ON) ; OvershootDb 2…6, défaut 6 — identique à l'analyse Android."

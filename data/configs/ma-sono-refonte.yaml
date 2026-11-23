@@ -1,0 +1,29 @@
+# Configuration CIBLE après refonte des caisses (paramètres retenus le 5 nov. 2026)
+# Une colonne = 1 SUB 21" + 2 KICK 2×18" + 1 MID 2×15" (2,5 voies) + HF CP650Ti/HP640 + SUPER CP22.
+# Amplification NON encore choisie => champs ampli à null : le calcul donne alors seulement les tensions cibles.
+
+nom: ma-sono-refonte
+proprietaire: Louis
+type_systeme: composants
+processeur: DBX_VENU360
+processeur_reglage_sortie: "+22"
+processeur_overshoot_db: null      # PeakStopPlus OVERSHOOT — à lire par `carte` (défaut appli 6 dB)
+processeur_unite_seuil: dBFS
+pourcentage_puissance_limite: 0.75
+temperature_c: 20
+
+voies:
+  - {nom: SUB,      sortie: 1, hp: RCF_LF21X451,     hp_en_serie: 1, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "BR 385 L, accord 34 Hz"}
+  - {nom: KICK,     sortie: 2, hp: BEYMA_SM118_GEN1, hp_en_serie: 2, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "BR 313 L, accord 44 Hz, 2×18\" série"}
+  - {nom: MID_BAS,  sortie: 3, hp: BEYMA_SM115_GEN1, hp_en_serie: 1, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "pavillon 60°, 2,5 voies (HP bas)"}
+  - {nom: MID_HAUT, sortie: 4, hp: BEYMA_SM115_GEN1, hp_en_serie: 1, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "pavillon 60°, 2,5 voies (HP haut)"}
+  - {nom: HF,       sortie: 5, hp: BEYMA_CP650TI,    hp_en_serie: 1, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "CP650Ti + HP640"}
+  - {nom: SUPER,    sortie: 6, hp: BEYMA_CP22,       hp_en_serie: 1, branches_paralleles: 1, ampli: null, mode: null, gain_canal_db: null, charge: "coffret existant"}
+
+dsp_depart:   # AVANT mesure — à valider par mesure, jamais tel quel en concert
+  SUB:      {hpf: "BW24 29 Hz", lpf: "LR24 55 Hz",   delai_ms: 6.66, pol: "+"}
+  KICK:     {hpf: "LR24 55 Hz", lpf: "LR24 160 Hz",  delai_ms: 2.03, pol: "+"}
+  MID_BAS:  {hpf: "LR24 160 Hz", lpf: "LR24 350 Hz", delai_ms: 0.11, pol: "+", eq: "-3 dB (niveau)"}
+  MID_HAUT: {hpf: "LR24 160 Hz", lpf: "LR24 1.25 kHz", delai_ms: 0.11, pol: "+", eq: "+2 dB 340 Hz Q2 si la mesure confirme"}
+  HF:       {hpf: "LR24 1 kHz", lpf: "actuel", delai_ms: 0, pol: "+"}
+  SUPER:    {hpf: "actuel (10 kHz)", lpf: null, delai_ms: null, pol: "+"}

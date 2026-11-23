@@ -1,0 +1,41 @@
+# MODÈLE DE SYSTÈME — copier en data/configs/<nom>.yaml (skill « nouveau-systeme »).
+# Fonctionne pour toute sono : à composants (DIY), constructeur (presets usine), enceintes amplifiées, ou mixte.
+# Règle : aucune valeur inventée. Inconnu = null. Les composants vont dans data/materiel.yaml (bibliothèque partagée).
+
+nom: null
+proprietaire: null                 # Louis, loueur, salle…
+type_systeme: composants           # composants | constructeur | amplifiee | mixte (alors préciser par voie)
+processeur: null                   # clé de data/materiel.yaml > processeurs (ex. DBX_VENU360), ou texte libre si absent
+processeur_reglage_sortie: null    # ex. "+22" pour le VENU360 ; sinon null
+processeur_unite_seuil: dBFS       # dBFS | dBu | V — unité des seuils de limiteur du processeur (la bibliothèque prime)
+processeur_overshoot_db: null      # dbx VENU360 : OVERSHOOT PeakStopPlus lu par `carte` (2–6, défaut 6) ; PA2 : 3 fixe
+pourcentage_puissance_limite: 0.75 # composants : fraction de la puissance nominale visée par les limiteurs
+temperature_c: 20
+preferences: null                  # habitudes propres à ce système (ex. « réglages fixes, voicing bass-heavy »)
+
+# Voies, de la plus grave à la plus aiguë. « element » = nom d'élément utilisé dans les piles de la fiche événement.
+voies:
+  - nom: SUB
+    type: composants               # composants | constructeur | amplifiee
+    sortie: 1                      # sortie du processeur
+    # --- type composants ---
+    hp: null                       # clé de materiel.yaml > haut_parleurs
+    hp_en_serie: 1
+    branches_paralleles: 1
+    ampli: null                    # clé de materiel.yaml > amplis
+    mode: stereo                   # stereo | bridge | parallele
+    gain_canal_db: null
+    charge: null                   # BR / clos / pavillon / BP + description
+    accord_event_hz: null
+    # --- type constructeur / amplifiee ---
+    enceinte: null                 # ex. "L-Acoustics KS28", "d&b SL-SUB"
+    preset_constructeur: null      # ex. "KS28_60", "[SL-SUB] 100 Hz"
+    controleur: null               # ex. "LA12X", "D80", "ASC-48"
+
+# Crossover en service (composants) ou point de raccord (constructeur). Format libre « LR24 90 Hz ».
+crossover:
+  SUB: {hpf: null, lpf: null}
+
+# Dimensions extérieures (cm) de chaque ÉLÉMENT tel que posé dans une pile : l = largeur face avant, p = profondeur, h = hauteur.
+caisses:
+  SUB: {l: null, p: null, h: null}

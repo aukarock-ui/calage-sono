@@ -1,0 +1,167 @@
+# =====================================================================
+# BIBLIOTHÈQUE DE COMPOSANTS — partagée par tous les systèmes (data/configs/*.yaml)
+# Chaque nouveau HP / ampli / processeur rencontré y est ajouté depuis sa fiche constructeur (skill « nouveau-systeme »),
+# avec sa source. Contenu initial : parc de Louis (MA Sono), d'après les fiches qu'il a fournies.
+# RÈGLE : aucune valeur inventée. Une donnée absente = null + champ "a_verifier".
+# Unités SI : W, Ω, V, dB, Hz, mm, L, kg.
+# Dernière mise à jour : 2026-11-22
+# =====================================================================
+
+haut_parleurs:
+
+  RCF_LF21X451:
+    type: woofer 21"
+    impedance_nominale_ohm: 8
+    z_min_ohm: 6.7
+    re_ohm: 5.4
+    puissance_aes_w: 2000
+    puissance_programme_w: 4000
+    sensibilite_db_1w1m: 97
+    bande_hz: [28, 1000]
+    ts: {fs_hz: 28, qts: 0.37, qes: 0.39, qms: 6.9, vas_l: 385, sd_m2: 0.173, bl_tm: 30.5, mms_g: 355, le_mh: 1.4}
+    xmax_mm: 13.5
+    excursion_dommage_cc_mm: 54
+    note: "Vas = 385 L (fiche RCF) — la valeur 355 L notée auparavant était fausse."
+
+  BEYMA_SM118_GEN1:
+    type: woofer 18" (1re génération)
+    impedance_nominale_ohm: 8
+    re_ohm: 6.4
+    puissance_aes_w: null
+    puissance_rms_w: 250
+    puissance_programme_w: null
+    sensibilite_db_1w1m: 97
+    bande_hz: [30, 3000]
+    ts: {fs_hz: 30, qts: 0.42, qes: 0.44, qms: 9.98, vas_l: 430, sd_m2: 0.1146, mms_g: 120}
+    xmax_mm: 5.5
+    a_verifier: ["norme de la puissance 250 W (RMS brochure, pas AES)", "T/S réels des exemplaires 1re gén. (vieillissement)"]
+
+  BEYMA_SM115_GEN1:
+    type: woofer 15" (1re génération)
+    impedance_nominale_ohm: 8
+    re_ohm: 6.2
+    puissance_aes_w: null
+    puissance_rms_w: 250
+    sensibilite_db_1w1m: 99
+    bande_hz: [30, 3000]
+    ts: {fs_hz: 42, qts: 0.40, qes: 0.42, qms: 11.3, vas_l: 185, sd_m2: 0.088, mms_g: 80}
+    xmax_mm: 5.5
+    a_verifier: ["norme de la puissance 250 W", "T/S réels des exemplaires"]
+
+  BEYMA_CP650TI:
+    type: moteur à compression 2" (gorge 49 mm), diaphragme titane
+    impedance_nominale_ohm: 8
+    re_ohm: 5.5
+    puissance_rms_w: 80          # au-dessus de 1 kHz
+    puissance_programme_w: 160
+    sensibilite_db_1w1m: 110     # sur pavillon TD-460, PAS sur HP640
+    bande_hz: [600, 18000]
+    coupure_min_recommandee_hz: 800
+    decision_louis: "limité à 75 % de la puissance nominale"
+    a_verifier: ["sensibilité réelle sur EV HP640 (mesure)"]
+
+  BEYMA_CP22:
+    type: tweeter à compression, bobine 1,5"
+    impedance_nominale_ohm: 8
+    z_min_ohm: 7.9
+    re_ohm: 6.3
+    puissance_aes_w: 25          # au-dessus de 5 kHz
+    puissance_programme_w: 50
+    sensibilite_db_1w1m: 107
+    bande_hz: [5000, 20000]
+    coupure_min_recommandee_hz: 5000
+    pente_min_db_oct: 12
+    dispersion_deg: 40
+
+pavillons:
+  EV_HP640:
+    directivite_deg: {h: 60, v: 40}
+    gorge_mm: 49
+    di_db: 12.5
+    q: 17.8
+    controle_h_des_hz: 500
+    controle_v_des_hz: [1250, 1500]
+    coupure_min_hz: 500
+
+amplis:
+  # gain_db = gain en tension PAR CANAL (stéréo). En bridge : tension ×2 => +6,02 dB
+  # (QSC RMX : « twice the voltage swing »). Toujours CONFIRMER au voltmètre (procédure méthode §6).
+  QSC_PL380:
+    classe: D
+    gains_selectionnables_db: [26, 32, 39.1]
+    entree_max_dbu_a_32db: 29
+    stereo_w: {8: 1500, 4: 2500, 2: 4000}
+    bridge_w: {8: 5000, 4: 8000}   # valeurs burst constructeur
+    filtre_lf: [30, 50, "off"]
+  QSC_PLX3002:
+    classe: H (2 paliers)
+    gain_db: 32                    # 40x
+    entree_max_dbu: 22
+    stereo_w: {8: 550, 4: 900, 2: 1500}
+    bridge_w: {8: 2000, 4: 3000}
+  QSC_RMX2450:
+    classe: H
+    gain_db: 34                    # 50x
+    stereo_w: {8: 500, 4: 750}
+    bridge_w: {8: 1500, 4: 2400}
+    note: "filtre LF 50 Hz : bosse vers 100 Hz — à laisser OFF, HPF au processeur"
+  QSC_RMX1450:
+    classe: AB
+    gain_db: 32                    # 40x
+    stereo_w: {8: 280, 4: 450}
+  IMG_STA400D:
+    a_verifier: ["toutes les specs — fiche dans le projet MA Sono, non encore saisie"]
+
+processeurs:
+  DBX_VENU360:
+    entrees: 3
+    sorties: 6
+    sortie_max_dbu: 22
+    # Niveau en dBu correspondant à 0 dBFS selon le réglage « analog output gain » (manuel, tableau p. 10)
+    sortie_0dbfs_dbu: {"+4": 4.5, "+8": 8.6, "+12": 12.4, "+14": 14.3, "+17": 17.2, "+20": 19.8, "+22": 22.1}
+    latence_ms_48k: 2.57
+    delai_max_ms: 1000
+    limiteur: {threshold_db: [-60, 0], unite_threshold: dBFS, overeasy: "off|1-10", attack: "100 µs–200 ms", hold_ms: [0, 500], release_db_s: [5, 360], peakstopplus_overshoot_db: [2, 6], overshoot_defaut_db: 6,
+               detection: "RMS si PeakStopPlus OFF ; crête (clamp + limiteur prédictif) si ON — manuel 5058681-C p. 88",
+               source: "manuel VENU360 5058681-C (p. 10 table 0 dBFS, p. 53-54 procédure, p. 88 PeakStopPlus) ; overshoot défaut 6 = appli"}
+    crossover_types: [BW6, BW12, BW18, BW24, BW30, BW36, BW42, BW48, LR12, LR24, LR36, LR48]
+    peq_sortie_bandes: 8
+    reseau: {port_tcp_udp: 19272, ftp: 21, protocole: "HiQnet Console (texte) + JSON-RPC", mdp_defaut: administrator}
+  DBX_PA2:
+    reseau: {port_tcp_udp: 19272, protocole: "HiQnet Console (texte)", lib_python: dbxdriverack, firmware_teste: "1.2.0.1"}
+    source: "manuel PA2 FR 5044138-A (p. 8 table sortie : 0 dBFS = +19,9 dBu ; p. 43-44 limiteurs PeakPlus)"
+    sortie_max_dbu: 19.9                 # 0 dBFS en sortie (manuel p. 8), pas de réglage de gain de sortie
+    limiteur: {threshold_db: [-60, 0], unite_threshold: dBFS, overshoot_fixe_db: 3,
+               detection: "RMS + écrêtage doux des pics (PeakPlus), pics jusqu'à +3 dB au-dessus du seuil"}
+    bibliotheque_amplis: "QSC PLX1104/1802/1804/2502/3102/3602, RMX850/1450/1850HD/2450/4050HD/5050, Crown, Peavey, Yamaha (PA2_Tuning_List) — PL380 et PLX3002 absents → « Not Listed » = limiteurs NON réglés par le Wizard"
+
+  BEHRINGER_DCX2496:
+    source: "fiche technique Behringer (sorties analogiques max +22 dBu) ; manuel §4.5 (limiteur −24…0 dB, release 20–4000 ms)"
+    reseau: {liaison: "RS-232 38400 8N1, câble NULL-MODEM, SETUP p.6 PORT = PC (RS232)", outil: tools/dcx2496.py,
+             table: data/protocoles/dcx2496_parametres.json, verifie_sur_materiel: false}
+    sorties: 6
+    sortie_max_dbu: 22
+    limiteur: {threshold_db: [-24, 0], unite_threshold: "dB (hypothèse : 0 dB = 0 dBFS = +22 dBu — À VÉRIFIER au voltmètre)", release_ms: [20, 4000]}
+    filtres: "butterworth / bessel / linkwitz-riley 6 à 48 dB/oct (noms exacts : table de paramètres)"
+    delai: {long_cm_pas: 5, court_mm_pas: 2}
+  TRACKS_DSP206:
+    source: "Thomann (USB, RS232/485, Ethernet) ; protocole : tom-da-costa/tracks-dsp-controller docs/PROTOCOL.md (§10 DSP 206)"
+    reseau: {port_tcp: 9761, adresse: "ID façade (206 capturé : 02)", un_seul_client: true, outil: tools/tracks_dsp.py, verifie_sur_materiel: false}
+    entrees: 2
+    sorties: 6
+    pleine_echelle_sortie_dbu: 20      # mesuré par l'auteur sur DSP 408 (±1 dB), supposé identique sur 206
+    # CONTRADICTION : manuel Thomann 435191/2/4 v4 (EN et FR, §7) annonce « sortie : niveau max +5 dBu », entrée +15 dBu.
+    # Le limiteur y est « TH −90 dB…+20 dB » (sans « u »). Tant que le voltmètre n'a pas tranché, la pleine échelle
+    # réelle est inconnue (+5 ou +20 dBu) : seuil > pleine échelle = limiteur qui n'agit jamais (le DSP écrête avant).
+    sortie_max_dbu_manuel: 5
+    limiteur: {threshold_dbu: [-90, 20], unite_threshold: dBu, pas_db: 0.5, type: "crête (manuel : « Peak limiter »)",
+               a_verifier: "unité réelle et pleine échelle au voltmètre (sinus 1 kHz, gain 0 dB, montée jusqu'à la LED Clip)"}
+    resolution_frequence: "300 pas sur 19,7 Hz–20,16 kHz (≈ 2,3 % par pas)"
+    delai_ms: [0, 680]
+  LINEA_ASC48:
+    source: "manuel ASC-48 (Tipi via Ethernet, contrôle complet par System Engineer/ObCom) ; doc Tipi Protocol v1.03/1.04"
+    reseau: {port_tcp: 51456, protocole: "TIPI (texte, publié)", outil: tools/linea_tipi.py, couverture: "partielle — méthodes à sonder"}
+    sorties: 8
+    gain_sortie_db: [-40, 20]
+    delai_ms: [0, 998]
+    limiteur: "VX / Tmax / Xmax — réglage via System Engineer uniquement (niveau C)"
