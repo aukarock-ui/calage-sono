@@ -215,7 +215,8 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
 1. Config complète (skill `nouveau-systeme`) : voies, amplis, `crossover`, `geometrie_pile`, `hypotheses_caisse`
    (accord/volume supposés tant que non mesurés), `style_defaut`.
 1 bis. **Coupures** : `python tools/coupures.py data/configs/<sys>.yaml --style <style> [--public 5-30]` classe les
-   variantes (section « Choix des coupures ») ; Louis choisit, on corrige `crossover`.
+   variantes (section « Choix des coupures ») ; Louis choisit, puis `--ecrire [N]` écrit la variante N (1 = conseillée)
+   dans `crossover` (commentaires conservés, relecture du YAML exigée).
 2. `python tools/preset_auto.py data/configs/<sys>.yaml --style <style> [--distance D]` → plan neutre
    `plans/<sys>-<style>-reglages.json` + feuille `.md`. Il enchaîne calc_systeme (seuils), excursion_br (HPF des BR
    sur toute la plage d'hypothèses, HPF minimal proposé s'il ne tient pas), reglages_pile (temps Proel, délais,

@@ -2,7 +2,7 @@
  "version": 1,
  "systeme": "ma-sono-cki",
  "config": "data/configs/ma-sono-cki.yaml",
- "date": "2026-11-24T13:50:28",
+ "date": "2026-11-24T13:55:05",
  "processeur": "DBX_VENU360",
  "style": "techno",
  "profil": "exigeant",
@@ -26,7 +26,7 @@
    },
    "polarite": "normale",
    "gain_db": 0.0,
-   "delai_ms": 4.6,
+   "delai_ms": 4.66,
    "limiteur": {
     "seuil": -23.1,
     "unite": "dBFS",
@@ -73,7 +73,7 @@
    },
    "polarite": "normale",
    "gain_db": -12.6,
-   "delai_ms": 1.7,
+   "delai_ms": 1.76,
    "limiteur": {
     "seuil": -26.1,
     "unite": "dBFS",
@@ -105,11 +105,11 @@
    "lpf": {
     "famille": "LR",
     "pente_db_oct": 24,
-    "hz": 1600.0
+    "hz": 1410.0
    },
    "polarite": "normale",
-   "gain_db": -16.3,
-   "delai_ms": 1.23,
+   "gain_db": -16.0,
+   "delai_ms": 1.25,
    "limiteur": {
     "seuil": -26.1,
     "unite": "dBFS",
@@ -133,7 +133,7 @@
    "hpf": {
     "famille": "LR",
     "pente_db_oct": 24,
-    "hz": 1600.0
+    "hz": 1410.0
    },
    "lpf": null,
    "polarite": "normale",
@@ -171,7 +171,7 @@
  "reserves_db": {
   "SUB": 0.0,
   "KICK": 9.6,
-  "MEDIUM": 13.3,
+  "MEDIUM": 13.0,
   "HIGH": 8.9
  },
  "alertes": [

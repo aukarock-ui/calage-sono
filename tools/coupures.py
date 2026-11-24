@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 from scipy.special import j1
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -308,7 +309,8 @@ def optimiser(chemin_config: str, style: str | None = None, public: tuple[float,
             r["delais_ms"] = {n: round(x["delai_ms"], 2) for n, x in dl["voies"].items()}
         except ValueError as e:
             r["sommes_db"] = {"erreur": str(e)}
-    return {"systeme": cfg.get("nom"), "style": style, "public_m": list(public), "hauteur_ecoute_m": hauteur_ecoute_m,
+    return {"config": str(Path(chemin_config).resolve()), "empreinte": _empreinte(chemin_config),
+            "systeme": cfg.get("nom"), "style": style, "public_m": list(public), "hauteur_ecoute_m": hauteur_ecoute_m,
             "raccords": raccords, "actuel": ref, "n_equivalentes": len(equiv),
             "gain_vs_actuel_db": round(conseil["score"] - ref["score"], 2) if ref else None, "classement": res[:top], "n_combinaisons": len(res), "notes": notes,
             "pentes": {f"{b}/{h}": f"{fam}{p}" for (b, h), (fam, p) in pentes.items()},
@@ -360,6 +362,79 @@ def rapport(r: dict) -> str:
     return "\n".join(l)
 
 
+def _empreinte(chemin_config: str) -> str:
+    """Empreinte du texte de la config (et de son recalage s'il existe) : un résultat d'optimiser() calculé sur une
+    autre config, ou avant une modification du fichier, est refusé par ecrire_coupures()."""
+    import hashlib
+    h = hashlib.sha256(Path(chemin_config).read_bytes())
+    rc = Path(cs.chemin_recalage(chemin_config))
+    if rc.exists():
+        h.update(rc.read_bytes())
+    return h.hexdigest()
+
+
+def ecrire_coupures(chemin_config: str, r: dict, rang: int = 1) -> dict:
+    """Écrit la variante `rang` du classement dans la section `crossover` de la config (texte modifié sur place :
+    commentaires conservés), puis relit le YAML et EXIGE que chaque filtre corresponde ; sinon rien n'est écrit.
+    Renvoie {voie: {hpf/lpf: (avant, après)}}."""
+    import re as _re
+    import yaml as _yaml
+    if r.get("config") != str(Path(chemin_config).resolve()) or r.get("empreinte") != _empreinte(chemin_config):
+        raise ValueError("résultat d'optimisation périmé ou calculé sur une autre config : relancer coupures.py")
+    if not 1 <= rang <= len(r["classement"]):
+        raise ValueError(f"variante {rang} absente du classement (1 à {len(r['classement'])})")
+    var = r["classement"][rang - 1]
+    voulu: dict = {}
+    for k, f in var["coupures_hz"].items():
+        b, h = k.split("/")
+        txt = f"{r['pentes'][k]} {f:g} Hz"
+        voulu.setdefault(b, {})["lpf"] = txt
+        voulu.setdefault(h, {})["hpf"] = txt
+    p = Path(chemin_config)
+    with open(p, encoding="utf-8", newline="") as fh:   # fins de ligne conservées (pas de conversion LF/CRLF)
+        lignes = fh.read().splitlines(keepends=True)
+    try:
+        debut = next(i for i, l in enumerate(lignes) if _re.match(r"^crossover:\s*(#.*)?$", l))
+    except StopIteration:
+        raise ValueError("section `crossover:` introuvable dans la config") from None
+    fin = next((i for i in range(debut + 1, len(lignes)) if _re.match(r"^\S", lignes[i])), len(lignes))
+    avant_cfg = _yaml.safe_load("".join(lignes)) or {}
+    changes = {}
+    for nom, filtres in voulu.items():
+        idx = next((i for i in range(debut + 1, fin) if _re.match(rf"^\s+{_re.escape(nom)}\s*:", lignes[i])), None)
+        if idx is None:
+            raise ValueError(f"crossover.{nom} introuvable (ligne « {nom}: {{hpf: …, lpf: …}} » attendue)")
+        for cle, val in filtres.items():
+            ancien = ((avant_cfg.get("crossover") or {}).get(nom) or {}).get(cle)
+            nouv_l, n = _re.subn(rf"(\b{cle}\s*:\s*)(\"[^\"]*\"|'[^']*'|null|[^,}}#]+?)(\s*[,}}])",
+                                 lambda m: f'{m.group(1)}"{val}"{m.group(3)}', lignes[idx], count=1)
+            if n != 1:
+                raise ValueError(f"crossover.{nom}.{cle} : format de ligne non reconnu, à modifier à la main")
+            lignes[idx] = nouv_l
+            if ancien != val:
+                changes.setdefault(nom, {})[cle] = (ancien, val)
+    texte = "".join(lignes)
+    relu = (_yaml.safe_load(texte) or {}).get("crossover") or {}
+    for nom, filtres in voulu.items():
+        for cle, val in filtres.items():
+            if (relu.get(nom) or {}).get(cle) != val:
+                raise ValueError(f"relecture : crossover.{nom}.{cle} = {(relu.get(nom) or {}).get(cle)!r}, attendu {val!r}")
+    # Rien d'autre ne doit bouger : configs complètes égales une fois les seules clés visées remises à l'ancienne valeur.
+    apres_cfg = _yaml.safe_load(texte) or {}
+    for nom, filtres in voulu.items():
+        for cle in filtres:
+            apres_cfg["crossover"][nom][cle] = ((avant_cfg.get("crossover") or {}).get(nom) or {}).get(cle)
+    if apres_cfg != avant_cfg:
+        raise ValueError("relecture : une autre valeur que les filtres visés aurait changé")
+    if changes:   # écriture atomique : fichier temporaire du même dossier puis remplacement
+        import os as _os
+        tmp = p.with_name(p.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8", newline="") as fh:
+            fh.write(texte)
+        _os.replace(tmp, p)
+    return changes
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -370,6 +445,9 @@ def main():
     ap.add_argument("--hauteur-ecoute", type=float, default=1.7)
     ap.add_argument("--distance-ref", type=float, default=20.0, help="point d'alignement des délais (m)")
     ap.add_argument("--top", type=int, default=5)
+    ap.add_argument("--ecrire", type=int, nargs="?", const=1, metavar="N",
+                    help="écrit la variante N (défaut 1 = conseillée) dans `crossover` de la config ; ensuite "
+                         "preset_auto (plan) puis appliquer-plan (processeur)")
     a = ap.parse_args()
     pmin, pmax = (float(x) for x in a.public.split("-"))
     try:
@@ -377,6 +455,18 @@ def main():
     except ValueError as e:
         sys.exit(f"ERREUR : {e}")
     print(rapport(r))
+    if a.ecrire is not None:
+        try:
+            ch = ecrire_coupures(a.config, r, a.ecrire)
+        except (ValueError, OSError, KeyError, TypeError, yaml.YAMLError) as e:
+            sys.exit(f"REFUS : {e}. Config inchangée.")
+        if not ch:
+            print(f"\nVariante {a.ecrire} = config actuelle : rien à écrire.")
+        if ch:
+            print(f"\nÉcrit dans {a.config} :")
+            for nom, x in ch.items():
+                print(f"  {nom} : " + " · ".join(f"{k} {v[0]} -> {v[1]}" for k, v in x.items()))
+            print("Suite : preset_auto.py <config> --style … puis dbx_hiqnet.py appliquer-plan … (ou feuille de saisie).")
 
 
 if __name__ == "__main__":

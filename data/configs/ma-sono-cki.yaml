@@ -64,8 +64,8 @@ voies:
 crossover:
   SUB:    {hpf: "LR24 35 Hz", lpf: "LR24 90 Hz"}   # HPF validé par excursion_br : Xmax tenu pour fb 28-40 Hz et Vb 400-550 L ; accord à mesurer
   KICK:   {hpf: "LR24 90 Hz", lpf: "LR24 400 Hz"}
-  MEDIUM: {hpf: "LR24 400 Hz", lpf: "LR24 1600 Hz"}
-  HIGH:   {hpf: "LR24 1600 Hz", lpf: null}
+  MEDIUM: {hpf: "LR24 400 Hz", lpf: "LR24 1410 Hz"}
+  HIGH:   {hpf: "LR24 1410 Hz", lpf: null}
   note: "HPF SUB obligatoire (bass-reflex) : accord non mesuré -> à fixer d'après excursion_br / mesure."
 
 # Plages supposées tant que l'accord (impédance) et le volume net ne sont pas mesurés : preset_auto vérifie le HPF

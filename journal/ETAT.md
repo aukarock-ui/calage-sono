@@ -20,6 +20,7 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
     - plafond de combinaisons ;
     - dbx_plan compare aussi le gain et le délai au plan régénéré, et refuse les valeurs non finies.
 - **CKI techno** : la variante conseillée est 90 / 400 / **1410** Hz, au lieu de 90 / 400 / 1600 (+0,7 dB de score, surtout grâce au raccord de directivité 15"/HP640). KICK/MEDIUM entre 200 et 400 Hz : tout se vaut, à décider à la mesure et à l'écoute. SUB/KICK reste à 90 Hz : sub limitant, HPF du KICK non vérifié.
+  - **Appliqué** (Louis : « applique l'optimiseur, il doit écrire ») : `coupures.py --ecrire` a écrit MEDIUM/HIGH 1600 → **1410 Hz** dans la config. Le plan a été régénéré : délais MEDIUM 1,25, KICK 1,76, SUB 4,66 ms ; gain MEDIUM −16,0 dB. Case 27 réécrite le 24/11/2026 à 13:55 : 76/76 conformes, 0 écart après rappel. Instantané d'avant : `journal/instantanes/20261124-135514-avant-plan.json`. À valider à la mesure contre 1600 Hz.
   - Point ouvert (décision de Louis) : un LR24 coupé exactement à 1 kHz laisse de l'énergie sous 1 kHz au CP650Ti, alors que sa puissance n'est spécifiée qu'au-dessus. Faut-il un plancher à 1,2-1,3 kHz ou une pente plus raide ? Sans objet à 1410 Hz.
 
 ## 2026-11-24 (suite 2) : chemin rapide config → processeur, profils de programme, techno « exigeant »

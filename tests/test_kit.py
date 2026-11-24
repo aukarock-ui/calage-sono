@@ -786,7 +786,7 @@ def test_plan_cki_techno():
     v = {x["nom"]: x for x in p["voies"]}
     assert v["SUB"]["controle_hpf"]["statut"] == "ok" and v["SUB"]["controle_hpf"]["hypothese"]
     assert v["HIGH"]["limiteur"]["detection"] == "crete" and v["SUB"]["limiteur"]["detection"] == "rms"
-    assert v["SUB"]["limiteur"]["seuil"] == -23.1 and abs(v["SUB"]["delai_ms"] - 4.60) < 0.02
+    assert v["SUB"]["limiteur"]["seuil"] == -23.1 and abs(v["SUB"]["delai_ms"] - 4.66) < 0.02   # coupure MEDIUM/HIGH 1410 Hz
     assert p["niveau"]["marge_db"] < 0                                 # 2 subs ne tiennent pas le profil exigeant à 20 m
     assert "PUISSANCE" in " ".join(p["alertes"])
     assert "| 4 | SUB |" in preset_auto.markdown(p)
@@ -967,7 +967,7 @@ def test_coupures_bornes_cki():
 
 def test_coupures_classement_cki():
     r = coupures.optimiser(CKI, "techno")
-    assert r["actuel"]["coupures_hz"] == {"SUB/KICK": 90.0, "KICK/MEDIUM": 400.0, "MEDIUM/HIGH": 1600.0}
+    assert r["actuel"]["coupures_hz"] == {"SUB/KICK": 90.0, "KICK/MEDIUM": 400.0, "MEDIUM/HIGH": 1410.0}
     for x in r["classement"]:
         c = x["coupures_hz"]
         assert c["MEDIUM/HIGH"] >= 1000 and c["SUB/KICK"] >= 90       # CP650Ti et HPF KICK non vérifiable
@@ -1011,3 +1011,36 @@ def test_coupures_hp_inconnu_refuse(tmp_path):
         c["voies"][3]["hp"] = "INCONNU"
     with pytest.raises(ValueError, match="absent de la bibliothèque"):
         coupures.optimiser(_copie_cki(tmp_path, faux_hp), "techno")
+
+
+def test_coupures_ecrire_config_conserve_commentaires(tmp_path):
+    p = tmp_path / "cki.yaml"
+    p.write_text(Path(CKI).read_text(encoding="utf-8").replace("LR24 1410 Hz", "LR24 1600 Hz"), encoding="utf-8")
+    r = coupures.optimiser(str(p), "techno")
+    ch = coupures.ecrire_coupures(str(p), r, 1)
+    assert ch == {"MEDIUM": {"lpf": ("LR24 1600 Hz", "LR24 1410 Hz")}, "HIGH": {"hpf": ("LR24 1600 Hz", "LR24 1410 Hz")}}
+    texte = p.read_text(encoding="utf-8")
+    assert "HPF validé par excursion_br" in texte                      # commentaires conservés
+    assert coupures.ecrire_coupures(str(p), coupures.optimiser(str(p), "techno"), 1) == {}   # idempotent
+    with pytest.raises(ValueError, match="périmé"):                    # r calculé avant l'écriture : refusé
+        coupures.ecrire_coupures(str(p), r, 1)
+    r2 = coupures.optimiser(str(p), "techno")
+    with pytest.raises(ValueError, match="variante"):
+        coupures.ecrire_coupures(str(p), r2, 99)
+    import yaml as _y
+    xo = _y.safe_load(texte)["crossover"]
+    assert xo["SUB"] == r["crossover_actuel"]["SUB"]                  # voies extrêmes jamais touchées
+    assert xo["HIGH"]["lpf"] == r["crossover_actuel"]["HIGH"]["lpf"]
+
+
+def test_coupures_ecrire_refuse_autre_config_et_garde_fins_de_ligne(tmp_path):
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    src = Path(CKI).read_text(encoding="utf-8").replace("LR24 1410 Hz", "LR24 1600 Hz")   # read_text : fins en LF
+    a.write_bytes(src.encode("utf-8"))
+    b.write_bytes(src.encode("utf-8"))
+    ra = coupures.optimiser(str(a), "techno")
+    with pytest.raises(ValueError, match="autre config"):
+        coupures.ecrire_coupures(str(b), ra, 1)
+    assert coupures.ecrire_coupures(str(a), ra, 1)
+    assert bytes([13, 10]) not in a.read_bytes()                     # LF conservé (pas de conversion CRLF)
+    assert not (tmp_path / "a.yaml.tmp").exists()
