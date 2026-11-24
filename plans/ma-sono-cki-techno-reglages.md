@@ -1,9 +1,9 @@
 # Plan de réglages — ma-sono-cki · style « techno » (profil exigeant)
-Généré le 2026-11-24T12:12:07 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
+Généré le 2026-11-24T13:50:28 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
 
 ## Feuille de saisie (une ligne par sortie, protections d'abord)
 
-| Sortie | Voie | HPF | LPF | Polarité | Limiteur seuil | Attaque | Relâchement | Détection | Délai | Gain |
+| Sortie | Voie | HPF | LPF | Polarité | Limiteur seuil | Attaque | Relâchement | Détection | Délai | Gain (crossover) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | HIGH | LR24 1.6 kHz | — | normale | **-31.1 dBFS** | 0.5 ms | 360 dB/s | crête (overshoot 6 dB) | 0.00 ms | -19.9 dB |
 | 2 | MEDIUM | LR24 400 Hz | LR24 1.6 kHz | normale | **-26.1 dBFS** | 2.0 ms | 271 dB/s | RMS | 1.23 ms | -16.3 dB |

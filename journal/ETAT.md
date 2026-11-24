@@ -6,6 +6,7 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
 ## 2026-11-24 (suite 3) : optimiseur de coupures, gain de voie dans le crossover
 
 - **Gain de voie** : écrit dans `CrossoverIIR<n>\SV\Band_1_Gain` (choix de Louis, plus facile à contrôler). OutputGains est maintenu à 0 dB.
+  - Appliqué sur la machine le 24/11/2026 à 13:50 : case 27 « CKI 4V Techno », 76/76 conformes, rappel puis relecture sans écart. Gains crossover : HIGH −19,9, MEDIUM −16,3, KICK −12,6, SUB 0 ; OutputGains 1-4 à 0 dB. Coupures inchangées (90 / 400 / 1600) en attendant le choix de Louis. Instantané d'avant : `journal/instantanes/20261124-135055-avant-plan.json`.
 - **`tools/coupures.py`** classe les fréquences de coupure.
   - Contraintes dures tirées de la bibliothèque : bandes des HP, coupure mini, puissance spécifiée (CP650Ti ≥ 1 kHz), pavillon. Pour les bass-reflex, l'excursion est revérifiée à chaque candidat ; si elle n'est pas vérifiable, on ne descend pas sous l'actuel.
   - Critères :
