@@ -91,8 +91,8 @@ def ecritures(plan: dict, depasser_plafond: bool = False) -> tuple[list[tuple[st
               if b["gain_db"] > 0]
     if bosses and chaine_sortie() != "peq_avant_limiteur":
         raise ValueError(f"bosses d'EQ de voie ({', '.join(bosses)}) refusées : ordre PEQOut / Limiter non établi "
-                         "par le banc électrique (data/protocoles/venu360_phase.yaml, chaine_sortie) — une bosse après "
-                         "le limiteur ne serait pas protégée")
+                         "(data/protocoles/venu360_phase.yaml, chaine_sortie : `dbx_hiqnet chaine <ip> --enregistrer`) — "
+                         "une bosse après le limiteur ne serait pas protégée")
     if plan.get("bloquant"):
         raise ValueError("plan BLOQUANT : " + " / ".join(plan.get("bloquants") or []))
     if not any(p in str(plan.get("processeur")) for p in PROCESSEURS):
@@ -162,12 +162,60 @@ FICHIER_BANC_ELECTRIQUE = RACINE / "data" / "protocoles" / "venu360_phase.yaml" 
 
 
 def chaine_sortie() -> str | None:
-    """Ordre PEQOut / Limiter établi par banc_electrique.py (None tant que non mesuré)."""
+    """Ordre PEQOut / Limiter enregistré (topologie machine via `dbx_hiqnet chaine --enregistrer`, ou banc
+    électrique). None tant qu'il n'est pas établi. appliquer() le revérifie EN DIRECT sur la machine."""
     import yaml
     f = FICHIER_BANC_ELECTRIQUE
     if not f.exists():
         return None
     return (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("chaine_sortie")
+
+
+def enregistrer_chaine(ordre: dict, firmware: str | None, cible: Path | None = None) -> Path:
+    """Fusionne l'ordre lu dans la topologie (dd.chaine_sortie_machine) dans venu360_phase.yaml (clé phase gardée)."""
+    import datetime as dt
+    import yaml
+    cible = Path(cible or FICHIER_BANC_ELECTRIQUE)
+    if ordre.get("chaine_sortie") not in ("peq_avant_limiteur", "peq_apres_limiteur"):
+        raise ValueError(f"ordre indéterminé : {ordre.get('motif')}")
+    doc = (yaml.safe_load(cible.read_text(encoding="utf-8")) or {}) if cible.exists() else {}
+    banc = doc.get("chaine_banc")
+    if banc in ("peq_avant_limiteur", "peq_apres_limiteur") and banc != ordre["chaine_sortie"]:
+        raise ValueError(f"la mesure au banc ({banc}) contredit la topologie ({ordre['chaine_sortie']}) : rien n'est "
+                         "enregistré, à trancher par Louis (la mesure prime)")
+    doc.update({"chaine_sortie": ordre["chaine_sortie"],
+                "chaine_source": ordre.get("source"), "chaine_ordre": ordre.get("ordre"),
+                "mute_avant_limiteur": ordre.get("mute_avant_limiteur"),
+                "chaine_date": dt.date.today().isoformat(), "chaine_firmware": firmware})
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text("# Ordre de la chaîne de sortie VENU360 (écrit par dbx_hiqnet chaine --enregistrer / banc_electrique)\n"
+                     + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return cible
+
+
+def verifier_machine(d, plan: dict) -> list[str]:
+    """Contrôles EN DIRECT avant écriture (lecture seule) : niveau de sortie analogique = config, et ordre
+    PEQ/limiteur relu dans la topologie si le plan contient des bosses. Liste vide = OK."""
+    import yaml
+    pb = []
+    cfg = yaml.safe_load(Path(plan["config"]).read_text(encoding="utf-8")) if plan.get("config") else {}
+    voulu = str((cfg or {}).get("processeur_reglage_sortie", "")).strip().replace(" ", "")
+    for v in plan["voies"]:
+        try:
+            relu = str(d.get(f"\\\\Node\\Settings\\SV\\Output{v['sortie']}Gain") or "").replace(" ", "")
+        except ValueError as e:
+            pb.append(f"niveau de sortie {v['sortie']} illisible ({e})")
+            continue
+        if not voulu or relu.lower() != (voulu + "dBu").lower():
+            pb.append(f"sortie {v['sortie']} ({v['nom']}) : niveau analogique relu {relu}, config {voulu or '?'} dBu — "
+                      "les plafonds de seuil seraient faux")
+    if any(b["gain_db"] > 0 for v in plan["voies"] for b in (v.get("peq") or [])):
+        ordre = dd.chaine_sortie_machine(d)
+        manquantes = [v["sortie"] for v in plan["voies"] if v["sortie"] not in (ordre.get("sorties") or [])]
+        if ordre.get("chaine_sortie") != "peq_avant_limiteur" or manquantes:
+            pb.append(f"bosses d'EQ : ordre PEQ/limiteur relu sur la machine = {ordre.get('chaine_sortie')} "
+                      f"({ordre.get('motif', '')}){f', sorties non couvertes {manquantes}' if manquantes else ''}")
+    return pb
 
 
 def verifier_topologie(d, plan: dict) -> list[str]:
@@ -196,7 +244,7 @@ def verifier_topologie(d, plan: dict) -> list[str]:
 def appliquer(d, plan: dict, journal, ip: str, depasser_plafond: bool = False) -> dict:
     """Écrit le plan. Renvoie le rapport ; lève ValueError (refus avant écriture) ou dd.SortiesNonMutees."""
     liste, notes = ecritures(plan, depasser_plafond)
-    pb = verifier_topologie(d, plan)
+    pb = verifier_topologie(d, plan) + verifier_machine(d, plan)
     if pb:
         raise ValueError("topologie incompatible : " + " ; ".join(pb)
                          + " — charger un preset à sorties indépendantes (6 × Mono Fullrange, ex. case 29)")

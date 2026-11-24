@@ -284,8 +284,13 @@ def enregistrer(res: dict, cible: Path | None = None) -> Path:
     cible = Path(cible or banc.FICHIER_BANC_ELECTRIQUE)
     if cible.exists():
         shutil.copy(cible, cible.with_suffix(".yaml.ancien"))
-    doc = {k: res[k] for k in ("date", "firmware", "source", "sortie", "voie", "phase", "chaine_sortie", "controles")
-           if k in res}
+    ancien = (yaml.safe_load(cible.read_text(encoding="utf-8")) or {}) if cible.exists() else {}
+    doc = {k: v for k, v in ancien.items() if k.startswith("chaine_") or k == "mute_avant_limiteur"}   # ordre (topologie)
+    doc.update({k: res[k] for k in ("date", "firmware", "source", "sortie", "voie", "phase", "controles") if k in res})
+    # ordre mesuré au banc : prime s'il est déterminé ; « indéterminé » ne remplace pas un ordre établi par la topologie
+    if res.get("chaine_sortie") and (res["chaine_sortie"] != "indetermine" or not ancien.get("chaine_sortie")):
+        doc["chaine_sortie"] = res["chaine_sortie"]
+    doc["chaine_banc"] = res.get("chaine_sortie")
     doc["portee"] = (f"mesuré sur la sortie {res['sortie']} seule ; supposé identique sur les 6 sorties (même bloc "
                      "PEQOut/Limiter) — à revérifier après un changement de firmware ou de topologie")
     doc["motif_chaine"] = res.get("motif")

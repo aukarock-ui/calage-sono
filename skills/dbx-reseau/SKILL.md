@@ -49,20 +49,51 @@ dbx_hiqnet.py instantane <ip> -o journal/instantanes/<nom>.json   # tous les ré
 En direct : `ecouter <ip> "<chemin du bloc>" --duree 120`. Reporter dans `docs/protocole-dbx.md`.
 
 ## Étape 2 — Écrire (seulement après accord de Louis)
+Tout passe par UN seul chemin de contrôle (`tools/dbx_reglage.py`), pour `set`, `regler` et `lot`.
 ```
-dbx_hiqnet.py set <ip> "<chemin>" "<valeur>"              # simulation : description, actuel, demandé
-dbx_hiqnet.py set <ip> "<chemin>" "<valeur>" --appliquer  # écrit, relit, journalise
+dbx_hiqnet.py regler <ip> MEDIUM.eq.2.gain -2dB --config data/configs/<sys>.yaml             # simulation
+dbx_hiqnet.py regler <ip> MEDIUM.eq.2.gain -2dB --config data/configs/<sys>.yaml --appliquer
+dbx_hiqnet.py set    <ip> "<chemin complet>" "<valeur>" [--appliquer]                            # chemin brut
+dbx_hiqnet.py lot    <ip> mon-lot.yaml --appliquer [--protection-validee]                        # plusieurs réglages
 ```
+**Alias** (`regler`, voies lues dans la config) : `VOIE.gain` (crossover), `.phase`, `.polarite`, `.hpf.freq|type`,
+`.lpf.freq|type`, `.niveau` / `.mute` (OutputGains), `.delai`, `.delai.actif`, `.eq` (On/Off),
+`.eq.<1-8>.<gain|freq|q|type|pente>`, `.limiteur.<seuil|actif|attaque|maintien|relachement|peakstop|overshoot|overeasy|auto>` ;
+`ENTREE.eq[.<1-12>.<…>]` (PEQ1) ; `SORTIE<n>.…` ; `SYSTEME.niveau_sortie.<n>`. Avec un alias de voie, le plafond du
+seuil est celui de la voie, sans `--voie`.
+**Lot** (`mon-lot.yaml`) : `config: data/configs/<sys>.yaml` puis `reglages: [ - ALIAS: valeur , … ]`.
+1. Tout est contrôlé d'abord : un seul refus, et rien n'est écrit (pas d'instantané non plus).
+2. Instantané complet, puis écriture dans l'ordre, chaque pas relu.
+3. Au premier échec : **retour arrière** dans l'ordre inverse (par pas). Un seuil de limiteur abaissé n'est jamais remonté par le retour arrière : il reste plus bas, donc plus protecteur.
+Vérifié en vrai le 24/11/2026 : un lot refusé n'écrit rien ; un lot qui échoue (RTARouter « A ») remet les 4 réglages précédents ; un lot conforme puis son lot inverse laissent la machine telle qu'avant.
+
+Règles (ne pas les contourner) :
+- **Pas maximum par écriture** : gains et EQ ±3 dB, délai ±0,5 ms, phase ±45°. Au-delà, refus.
+  - `--par-pas` découpe l'écart, chaque pas étant écrit puis relu (vérifié en vrai : KICK −12,6 → −18,6 dB en 2 pas, délai 0 → 1 ms, phase 0 → −90°). Au-delà de 2 pas sans remesure (6 dB, 1 ms, 90°), il faut aussi `--protection-validee`.
+  - Valeur actuelle illisible (délai dépassé, unité inconnue) : refus, car rien n'est écrit sans état d'avant connu.
+  - Bosse (gain > 0) sur un PEQOut : l'ordre PEQ/limiteur est relu en direct dans la topologie avant d'écrire.
+  - Alias de voie sur un crossover multivoie (CrossoverIIR à plusieurs bandes) : refusé, car Band_1 ne serait pas la voie visée.
+  - Seuil `Limiter<n>` : la voie est déduite de la sortie n dans la config ; un `--voie` contradictoire est refusé.
+  - Retour arrière d'un lot : générateur coupé et mutes d'abord, puis le reste dans l'ordre inverse. Il s'arrête au premier écart (code 2 : restaurer l'instantané). Il ne rallume jamais le générateur et ne remonte jamais un seuil.
+  - `--pas-libre` lève le pas, seulement si les 6 sorties sont relues mutées (construction de preset).
+  - Seuils, fréquences, Q, types : pas de pas maximum (le seuil a son plafond).
 - **Protection** (limiteurs, HPF/LPF et leurs types, polarité, mutes, PeakStop, et aussi gains d'entrée, de zone et de sortie, routage InMixer et MidRouter, niveaux analogiques d'appareil) : refusée sans `--protection-validee`.
-- **Seuil de limiteur** : `--config data/configs/<système>.yaml --voie <NOM>`. Un seuil au-dessus du plafond calculé est refusé (`--depasser-plafond` seulement sur décision explicite de Louis).
+- **Seuil de limiteur** : `--config` + `--voie` (ou un alias de voie). Au-dessus du plafond : refusé (`--depasser-plafond` seulement sur décision explicite de Louis). La valeur **relue** est aussi comparée au plafond.
+- **Niveau de sortie analogique** (`\\Node\Settings\SV\Output<n>Gain`, +4…+22 dBu) : il cale TOUS les plafonds. Refusé tant que la config ne porte pas déjà la nouvelle valeur, confirmée (`processeur_reglage_sortie`), et que les 6 sorties ne sont pas relues mutées. Après l'écriture, les 6 niveaux sont relus, avec un avertissement s'ils diffèrent de la config. `appliquer-plan` relit aussi ces niveaux en direct et refuse s'ils diffèrent de la config.
 - **Générateur de signal** (`SignalGenerator`, `SignalGeneratorControl`) : refusé sans `--signal-valide`, et Louis doit avoir confirmé un niveau sûr et que personne n'est exposé. Le niveau est plafonné à −30 dB, et l'allumage est refusé si le niveau réglé est plus haut.
 - **Commandes ponctuelles** (`Flatten`, `ClearAll`, `ClearLive` de l'AFS) : seulement à la main, jamais en lot.
-- Pas maximum par écriture en calage : EQ ±3 dB, délai ±0,5 ms, gain ±3 dB, puis remesurer.
 - Pour un chemin aussi présent dans la carte YAML, les deux validations s'appliquent (la plus stricte gagne).
 - Réglage d'appareil `\\Node` autre que les niveaux d'entrée/sortie : refusé sans `--hors-carte`.
-- Seuil : la valeur **relue** est elle aussi comparée au plafond.
 - Si la relecture diffère : « ÉCHEC », code non nul. S'arrêter.
-- Le pas maximum par écriture (±3 dB, ±0,5 ms) n'est PAS encore vérifié par `set` : le respecter à la main.
+
+## Lire sans rien toucher : mètres, ordre de la chaîne
+```
+python tools/metres.py <ip> [--duree 3] [--tous] [--json f.json]     # abonnement aux 66 mètres, lecture seule
+dbx_hiqnet.py chaine <ip> [--enregistrer]                           # ordre PEQ / mute / limiteur lu dans la topologie
+```
+- **Mètres** : seuls Meters123 et MetersABC (entrées 1-3, A-B-C) sont vivants par la console : environ 10 mises à jour par seconde, valeur efficace (sinus −30 dB crête → −33,0 dB). Sorties, Mid, InputMeters, capteurs des limiteurs et du compresseur restent **figés**, même sortie démutée avec signal. Contrôler une sortie ou un limiteur passe donc par la boucle REW, pas par les mètres.
+- **Chaîne de sortie** (topologie, POMap + AutoWire, firmware 2.0.5.0) : CrossoverIIR → PEQOut → ZoneGains → OutputGains (mute) → Limiter → DelayOut, même DSP. Les PEQ de voie sont donc AVANT le limiteur : une bosse est limitée. `--enregistrer` écrit `chaine_sortie` dans `data/protocoles/venu360_phase.yaml`, ce qui débloque les bosses d'EQ de voie ; `appliquer-plan` relit la topologie en direct avant d'en écrire une.
+- **Générateur** : il entre par les routeurs d'entrée (`InRouter<n>\SV\SignalGeneratorControl` = SignalGeneratorOn, Signal Route All). Il est visible sur Meters123 et MetersABC. Utile pour vérifier une entrée, pas une sortie.
 
 ## Étape 3 — Restaurer un état complet
 ```
@@ -101,7 +132,7 @@ un plan qui ne correspond plus à la config actuelle (il est régénéré et com
 une config hors `data/configs/`, un gain > 0 dB ou un délai hors [0, 30] ms. Seuils arrondis vers le bas.
 Plan v2 (`optim_preset`) : `phase_deg` (Band_1_Phase, bornée à −135…0 : −180° = inversion, décision de Louis), `peq` par voie (PEQOut, ≤ 8 bandes, ±12 dB, bosse ≤ +6,
 Q 0,3-10) et `peq_entree` (PEQ1, EQ générale) ; toute bosse de voie refusée tant que `data/protocoles/venu360_phase.yaml`
-n'établit pas `chaine_sortie: peq_avant_limiteur` (banc électrique). Plan v1 toujours accepté (phase 0, PEQ Off).
+n'établit pas `chaine_sortie: peq_avant_limiteur` (`chaine --enregistrer`, établi le 24/11/2026), et revérifiée en direct. Plan v1 toujours accepté (phase 0, PEQ Off).
 Topologie exigée : une sortie = un crossover indépendant (`CrossoverIIR<n>` à une seule bande, `Limiter<n>`,
 `DelayOut<n>`). Le gain de voie est écrit dans le crossover (`CrossoverIIR<n>\SV\Band_1_Gain`, choix de Louis :
 réglé au même endroit que les filtres) ; OutputGains reste à 0 dB. Les deux sont avant le limiteur. Charger d'abord un preset « 6 × Mono Fullrange » (case 29 sur la machine de Louis) ; sinon refus

@@ -1,0 +1,13 @@
+# Ordre de la chaîne de sortie VENU360 (écrit par dbx_hiqnet chaine --enregistrer / banc_electrique)
+chaine_sortie: peq_avant_limiteur
+chaine_source: 'topologie machine (Node Config : POMap + AutoWire)'
+chaine_ordre:
+- CrossoverIIR1
+- PEQOut1
+- ZoneGains
+- OutputGains
+- Limiter1
+- DelayOut1
+mute_avant_limiteur: true
+chaine_date: '2026-11-24'
+chaine_firmware: 2.0.5.0

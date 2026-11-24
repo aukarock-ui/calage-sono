@@ -613,3 +613,53 @@ def topologie(d) -> dict:
     except ValueError as e:
         out["assistant_erreur"] = str(e)
     return out
+
+
+# ---------------- ordre de la chaîne de sortie, lu dans la topologie de la machine ----------------
+# Constat du 24/11/2026 (firmware 2.0.5.0) : \Node\Config\SV\Config contient « gridsOA / POMap », la liste ORDONNÉE des
+# blocs de traitement, et « wires » (les seuls câblages manuels). Les blocs « AutoWire: true » d'un même DSP sont
+# chaînés dans l'ordre du POMap : Inputs3 → CrossoverIIR → PEQOut → ZoneGains → OutputGains → Limiter → DelayOut → Outputs3.
+BLOCS_SORTIE = re.compile(r"^(CrossoverIIR|PEQOut|ZoneGains|OutputGains|Limiter|DelayOut)\d*$")
+METRES_BLOC = re.compile(r"^(OutputMeters|MidMeters|InputMeters|Meters123|MetersABC)$")
+
+
+def chaine_depuis_config(cfg: dict) -> dict:
+    """Ordre PEQOut / OutputGains / Limiter d'après la topologie. {chaine_sortie, ordre, motif?}."""
+    pomap = next((g.get("Map") for g in cfg.get("gridsOA") or [] if g.get("Name") == "POMap"), None)
+    out = {"chaine_sortie": "indetermine", "source": "topologie machine (Node Config : POMap + AutoWire)"}
+    if not pomap:
+        return out | {"motif": "POMap absent de la configuration"}
+    rang = {inst: i for i, groupe in enumerate(pomap) for inst in groupe}
+    # une prise de mètre (DelayOut1 -> OutputMeters) ne change pas le trajet ; tout autre fil manuel qui touche la
+    # chaîne de sortie (entrée d'un bloc de sortie, ou sortie d'un bloc vers autre chose qu'un mètre) rend l'ordre douteux
+    manuels = [w for w in cfg.get("wires") or []
+               if BLOCS_SORTIE.match(str(w[1][0])) or (BLOCS_SORTIE.match(str(w[0][0])) and not METRES_BLOC.match(str(w[1][0])))]
+    if manuels:
+        return out | {"motif": f"câblage manuel sur la chaîne de sortie : {manuels[:3]}"}
+    sorties = [n for n in range(1, 7) if f"PEQOut{n}" in rang and f"Limiter{n}" in rang]
+    if not sorties:
+        return out | {"motif": "PEQOut<n> / Limiter<n> absents du POMap"}
+    pas_auto = [i for n in sorties for i in (f"PEQOut{n}", f"Limiter{n}", "OutputGains")
+                if not (cfg.get(i) or {}).get("AutoWire", False)]
+    dsp = {(cfg.get(i) or {}).get("Properties", {}).get("DSP") for n in sorties for i in (f"PEQOut{n}", f"Limiter{n}")}
+    if pas_auto or len(dsp) != 1:
+        return out | {"motif": f"blocs non chaînés automatiquement {pas_auto} ou sur plusieurs DSP {dsp}"}
+    avant = all(rang[f"PEQOut{n}"] < rang[f"Limiter{n}"] for n in sorties)
+    apres = all(rang[f"PEQOut{n}"] > rang[f"Limiter{n}"] for n in sorties)
+    ordre = [g[0] for g in pomap if g and BLOCS_SORTIE.match(str(g[0]))]
+    mute_avant = "OutputGains" in rang and all(rang["OutputGains"] < rang[f"Limiter{n}"] for n in sorties)
+    return out | {"chaine_sortie": "peq_avant_limiteur" if avant else "peq_apres_limiteur" if apres else "indetermine",
+                  "ordre": ordre, "sorties": sorties, "mute_avant_limiteur": mute_avant, "dsp": dsp.pop()}
+
+
+def chaine_sortie_machine(d) -> dict:
+    import json as _json
+    try:
+        brut = d.get("\\\\Node\\Config\\SV\\Config")
+        cfg = _json.loads(str(brut).replace("`", '"')) if brut else {}
+    except (ValueError, _json.JSONDecodeError) as e:
+        return {"chaine_sortie": "indetermine", "motif": f"topologie illisible : {e}"}
+    try:
+        return chaine_depuis_config(cfg)
+    except (IndexError, TypeError, KeyError, AttributeError) as e:      # fils ou POMap mal formés
+        return {"chaine_sortie": "indetermine", "motif": f"topologie mal formée : {type(e).__name__} {e}"}

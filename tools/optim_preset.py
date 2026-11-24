@@ -158,8 +158,14 @@ def ecrire_peq(d, base: str, visees: list[dict], n_bandes: int, journal, ip: str
     import dbx_plan
     import preset_auto
     visees = preset_auto.valider_peq(visees, n_bandes, base)
-    if "PEQOut" in base and any(b["gain_db"] > 0 for b in visees) and dbx_plan.chaine_sortie() != "peq_avant_limiteur":
-        raise Annule(f"{base} : bosse refusée — ordre PEQOut / limiteur non établi (banc_electrique.py)")
+    if "PEQOut" in base and any(b["gain_db"] > 0 for b in visees):
+        if dbx_plan.chaine_sortie() != "peq_avant_limiteur":
+            raise Annule(f"{base} : bosse refusée — ordre PEQOut / limiteur non établi (dbx_hiqnet chaine --enregistrer)")
+        if hasattr(d, "ls"):                                             # topologie relue en direct
+            ordre = dd.chaine_sortie_machine(d)
+            if ordre.get("chaine_sortie") != "peq_avant_limiteur":
+                raise Annule(f"{base} : bosse refusée — ordre relu sur la machine : {ordre.get('chaine_sortie')} "
+                             f"({ordre.get('motif', '')})")
     cibles = visees + [None] * (n_bandes - len(visees))          # None = bande à 0 dB, forme indifférente
     if str(d.get(base + "ParametricEQ")).strip() != "On":
         for i, c in enumerate(lire_peq(d, base, n_bandes), 1):

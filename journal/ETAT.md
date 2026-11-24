@@ -3,6 +3,53 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-24 (suite 7) : pilotage complet du VENU360 (régler n'importe quel paramètre), testé en vrai
+- Demande de Louis : « que tu sois capable de régler n'importe quel paramètre du processeur, teste, améliore… ».
+  Plan validé (plan mode). Amplis toujours débranchés (accord du 24/11).
+- **Sondes en vrai** :
+  - **Générateur interne :** il est piloté et relu (Off/On, Sine 1 kHz, −30 dB, Route All). Il entre par `InRouter<n>\SignalGeneratorControl`.
+  - **Mètres :** seuls Meters123 et MetersABC sont VIVANTS par la console (−33,0 dB efficace pour −30 dB crête). OutputMeters, MidMeters, InputMeters et les capteurs de limiteur et de compresseur sont FIGÉS, même sortie 1 démutée.
+    Conséquence : le « banc interne » prévu (gain, écrêtage du limiteur, ordre de chaîne au mètre) est **impossible**. La vérification des sorties reste à la boucle REW.
+  - **Topologie** (`\\Node\Config\SV\Config`, POMap + AutoWire, prises de mètres seules en fils manuels) : chaîne CrossoverIIR → PEQOut → ZoneGains → OutputGains (mute) → Limiter → DelayOut, même DSP (dsp3).
+    Elle est enregistrée (`dbx_hiqnet chaine --enregistrer` → `data/protocoles/venu360_phase.yaml`, `chaine_sortie: peq_avant_limiteur`). Cela **débloque les bosses d'EQ de voie** ; `appliquer-plan` relit la topologie en direct avant d'en écrire une.
+  - **PEQ d'entrée PEQ1 :** elle est Off, mais sa bande 1 vaut +10 dB (reste d'un ancien preset). Ne jamais la passer On sans la mettre à plat.
+- **Nouveaux outils** :
+  - **`tools/dbx_reglage.py`** : chemin de contrôle unique pour `set`, `regler` et `lot`.
+    - Le **pas maximum est enfin appliqué** : gains et EQ ±3 dB, délai ±0,5 ms, phase ±45°. `--par-pas` découpe l'écart ; `--pas-libre` n'est accepté que si les 6 sorties sont relues mutées.
+    - Alias par voie : `regler <ip> MEDIUM.eq.2.gain -2dB --config …`.
+    - `lot` : tout est contrôlé avant d'écrire. Au premier échec, retour arrière automatique ; un seuil abaissé n'est jamais remonté.
+  - **Niveau de sortie analogique** `Output<n>Gain` : refusé tant que la config ne porte pas la nouvelle valeur ; `appliquer-plan` le relit en direct.
+  - **`tools/metres.py`** (lecture seule).
+  - **`tools/catalogue_venu360.py`** et le nouveau **skill `venu360-pilotage`** (catalogue des blocs, outil et règle par classe).
+  - **`banc_electrique --enregistrer`** fusionne désormais ses résultats : un ordre « indéterminé » ne remplace pas celui de la topologie.
+- **Essais en vrai**, tous remis à l'état d'avant :
+  - réglages par pas : KICK.gain −12,6 → −18,6 → −12,6 dB, HIGH.delai 0 → 1 → 0 ms, MEDIUM.phase 0 → −90 → 0° ;
+  - HIGH.limiteur.seuil −31,1 → −33,1 → −31,1 dB, MEDIUM.eq.2.gain ;
+  - lot refusé : rien écrit ;
+  - lot en échec (RTARouter « A » rend le paramètre illisible) : 4 réglages remis, seuil HIGH laissé à −32,1 dB, puis remis à −31,1 à la main ;
+  - lot conforme et son lot inverse ;
+  - SYSTEME.niveau_sortie +12 dBu refusé.
+  - Fin : plan = machine (69/77 identiques + 8 écarts de forme), 6 sorties mutées.
+- **Revue controleur-securite** : 3 P1 et 7 P2, tous corrigés (213 tests), puis les essais clés repassés en vrai.
+  - **Corrigé :**
+    - une valeur d'avant illisible est refusée ;
+    - niveau de sortie : seulement sorties mutées, puis relecture des 6 ;
+    - retour arrière : générateur coupé et mutes d'abord, arrêt au premier écart, jamais de générateur rallumé ni d'amplitude au-dessus de −30 dB ;
+    - voie déduite du `Limiter<n>` ;
+    - alias refusé sur un crossover multivoie ;
+    - `--par-pas` au-delà de 2 pas : `--protection-validee` ;
+    - bosse PEQOut : topologie relue en direct (aussi dans `optim_preset`) ;
+    - une mesure au banc contradictoire bloque l'enregistrement de la topologie.
+  - **Contre-revue de vérification** : pas faite (limite d'usage de l'agent). À relancer à la prochaine session.
+  - **Point de fond :** l'ordre « PEQ avant limiteur » est INFÉRÉ de la topologie. À confirmer une fois par la boucle REW : bosse sur PEQOut avec un seuil bas.
+- **ÉCART de Claude** (sonde du générateur, script de diagnostic hors outils) : le seuil du Limiter1 a été mis à −20 dB pendant quelques secondes, alors qu'il était à −31,1 dB. C'est le mauvais sens, au-dessus du plafond. Amplis débranchés, sortie générateur à −30 dB ; il a été remis et relu à −31,1 dB.
+  Règle tenue désormais : aucune écriture de seuil hors `dbx_hiqnet` / `dbx_reglage`, qui vérifient le plafond.
+- **Reste à Louis** :
+  - **Boucle REW** (sortie → interface) pour la phase : `banc_electrique` ;
+  - **mesure au micro** (`optim_preset` en vrai), écoute, stockage ;
+  - **démuter** les sorties 1-4 (toutes mutées actuellement) quand les amplis sont branchés ;
+  - **mot de passe d'usine** à changer si le réseau n'est pas isolé.
+
 ## 2026-11-24 (suite 5) : optimisation complète du preset à la mesure (outils, simulation seulement)
 - Demande de Louis : optimiser à la mesure gains de voie, calage temporel, phase (Band_1_Phase du crossover), EQ par
   voie, EQ générale, et renvoyer les écarts dans le calcul. Plan validé (plan mode).

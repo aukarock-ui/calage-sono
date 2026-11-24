@@ -448,7 +448,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set",
                                     "presets", "rappel", "stocker", "rpc", "decrire", "restaurer", "autotest", "topologie",
-                                    "appliquer-plan"])
+                                    "appliquer-plan", "regler", "lot", "chaine"])
     ap.add_argument("--signal-valide", action="store_true",
                     help="Louis a confirmé niveau sûr et personne exposé : autorise l'écriture du générateur (≤ -30 dB)")
     ap.add_argument("--nom", help="stocker : nom donné au preset (sinon il garde le nom du preset chargé)")
@@ -472,6 +472,11 @@ def main() -> None:
     ap.add_argument("--voie", help="nom de la voie dans la config (ex. SUB)")
     ap.add_argument("--depasser-plafond", action="store_true", help="dérogation explicite de Louis, journalisée")
     ap.add_argument("--hors-carte", action="store_true", help="écrire un chemin absent de la carte (vérifié par get)")
+    ap.add_argument("--par-pas", action="store_true",
+                    help="set/regler/lot : découper un écart > pas maximum (±3 dB, ±0,5 ms, ±45°), chaque pas relu")
+    ap.add_argument("--pas-libre", action="store_true",
+                    help="set/regler/lot : lever le pas maximum (construction de preset) — seulement 6 sorties relues mutées")
+    ap.add_argument("--enregistrer", action="store_true", help="chaine : enregistrer l'ordre lu dans data/protocoles/venu360_phase.yaml")
     # valeurs négatives (« -2.0dB ») : les protéger d'argparse
     argv = [("\x00" + t) if re.match(r"^-\d", t) else t for t in sys.argv[1:]]
     a = ap.parse_args(argv)
@@ -487,7 +492,7 @@ def main() -> None:
             print(f"{k}\n    avant : {x}\n    après : {y}")
         return
 
-    besoin = {"appliquer-plan": 2, "rappel": 2, "stocker": 2, "rpc": 2, "set": 3, "get": 2, "ls": 2, "ecouter": 2}.get(a.cmd, 1)
+    besoin = {"appliquer-plan": 2, "rappel": 2, "stocker": 2, "rpc": 2, "set": 3, "regler": 3, "lot": 2, "get": 2, "ls": 2, "ecouter": 2}.get(a.cmd, 1)
     if len(a.args) < besoin:
         sys.exit(f"{a.cmd} : {besoin} argument(s) attendu(s) (voir --help).")
     # Refus décidables sans l'appareil : AVANT toute connexion (aucune trame ne part pour une demande refusée).
@@ -770,87 +775,83 @@ def main() -> None:
         elif a.cmd == "rpc":
             methode, params = a.args[1], a.args[2:]   # liste blanche de lecture vérifiée avant la connexion
             print(json.dumps(d.rpc(methode, params), ensure_ascii=False, indent=1))
-        elif a.cmd == "set":
-            chemin, valeur = a.args[1], a.args[2]
-            if any(m in chemin.lower() for m in CHEMINS_INTERDITS):
-                sys.exit("REFUS : chemin système (mot de passe, reboot, commande de config).")
+        elif a.cmd in ("set", "regler"):
+            import dbx_reglage as dr
+            o = _options(a)
             try:
-                refuser_controle(chemin, valeur)
-            except ValueError as e:
-                sys.exit(f"REFUS : {e}")
-            # 1) Description donnée par la machine elle-même (bornes, choix, mètre) : elle prime sur la carte YAML.
-            desc = dd.decrire_param(d, chemin)
-            if desc is not None:
-                motif = dd.valider_machine(desc, valeur)
-                if motif:
-                    sys.exit(f"REFUS : {chemin} = {valeur} : {motif}.")
-                # la carte, quand elle connaît le chemin, s'ajoute (la plus stricte des deux l'emporte)
-                if regle_carte(chemin) is not None:
-                    motif = valider_valeur(chemin, valeur)
-                    if motif:
-                        sys.exit(f"REFUS : {chemin} = {valeur} : {motif} (carte data/venu360_parametres.yaml).")
-                # réglage d'appareil hors preset non cartographié : seulement en connaissance de cause
-                if chemin.lower().startswith("\\\\node\\") and not dd.REGLAGES_APPAREIL_TESTABLES.search(chemin) and not a.hors_carte:
-                    sys.exit(f"REFUS : {chemin} est un réglage d'appareil non cartographié : --hors-carte après vérification.")
-            else:
-                # 2) Repli : carte hors ligne (simulateur, firmware qui ne se décrit pas)
-                motif = valider_valeur(chemin, valeur)
-                if motif and not (a.hors_carte and motif.startswith("chemin absent")):
-                    sys.exit(f"REFUS : {chemin} = {valeur} : {motif}."
-                             + (" Chemin non cartographié : --hors-carte après vérification par get." if motif.startswith("chemin absent") else ""))
-            if dd.est_signal(chemin):
-                if not a.signal_valide:
-                    sys.exit("REFUS : générateur de signal. Il faut l'accord explicite de Louis (niveau sûr, personne exposé) : --signal-valide.")
-                ampl = None
-                try:
-                    ampl = d.get("\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude")
-                except ValueError:
-                    pass
-                m_sig = dd.verifier_signal(chemin, valeur, ampl)
-                if m_sig:
-                    sys.exit(f"REFUS : {m_sig}.")
-            note_plafond = None
-            if re.search(r"\\Limiter\d*\\SV\\Threshold$", chemin, re.I):
-                try:
-                    note_plafond = verifier_plafond(nombre(valeur), a.config, a.voie, "dBFS", a.depasser_plafond)
-                except ValueError as e:
-                    sys.exit(f"REFUS : {e}")
-                print(f"  {note_plafond}")
-            avant = d.get(chemin)
-            print(f"{chemin}\n  actuel : {avant}\n  demandé : {valeur}")
-            if est_protection(chemin) and not a.protection_validee:
-                sys.exit("REFUS : paramètre de PROTECTION. Il faut la validation explicite de Louis (--protection-validee).")
-            if not a.appliquer:
+                if a.cmd == "regler":
+                    chemin, voie = dr.resoudre(a.args[1], a.config)
+                    if voie and o.voie and o.voie.upper() != voie.upper():
+                        raise dr.Refus(f"--voie {o.voie} contredit l'alias {a.args[1]} (voie {voie})")
+                    o.voie = voie or o.voie
+                    dr.verifier_cible(d, chemin, a.args[1])
+                    print(f"{a.args[1]} -> {chemin}" + (f" (voie {voie})" if voie else ""))
+                else:
+                    chemin = a.args[1]
+                valeur = a.args[2]
+                r = dr.ecrire_controle(d, ip, chemin, valeur, o)
+            except dr.Refus as e:
+                sys.exit(f"REFUS : {e}.")
+            except dr.Echec as e:
+                sys.exit(f"ÉCHEC : {e}.")
+            print(f"{chemin}\n  actuel : {r['avant']}\n  demandé : {valeur}")
+            for n_ in r["notes"]:
+                print(f"  {n_}")
+            if len(r["pas"]) > 1:
+                print(f"  pas : {' → '.join(r['pas'])}")
+            if r["simulation"]:
                 print("SIMULATION — rien n'a été écrit (ajouter --appliquer).")
                 return
-            snap = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-avant-set.json"
-            snap.parent.mkdir(parents=True, exist_ok=True)
-            snap.write_text(json.dumps({chemin: avant}, ensure_ascii=False), encoding="utf-8")
-            r = d.set(chemin, valeur)
-            apres = d.get(chemin)
-            journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]"
-                        + (f" [{note_plafond}]" if note_plafond else "") + (" [HORS CARTE]" if motif else "")
-                        + ("" if desc else " [sans description machine]"))
-            print(f"  relu : {apres}")
-            conforme = dd.relecture_machine(desc, valeur, apres) if desc else relecture_conforme(valeur, apres, chemin)
-            if note_plafond and nombre(str(apres or "").split("/")[0]) is not None:
-                # la valeur RETENUE par la machine doit elle aussi respecter le plafond (pas seulement la consigne)
-                try:
-                    verifier_plafond(nombre(str(apres)), a.config, a.voie, "dBFS", a.depasser_plafond)
-                except ValueError as e:
-                    d.set(chemin, str(avant).strip())             # retour à l'ancien seuil (sous le plafond)
-                    remis = d.get(chemin)
-                    journaliser(f"ECART PLAFOND {ip} {chemin} : relu {apres} : {e} ; ancien seuil réécrit, relu {remis}")
-                    sys.exit(f"ÉCHEC : seuil retenu par la machine ({apres}) au-dessus du plafond : {e}. "
-                             f"Ancien seuil réécrit (relu {remis}).")
-            if not conforme and desc and dd.arrondi_machine(desc, valeur, apres, chemin):
-                journaliser(f"ARRONDI {ip} {chemin} : demandé {valeur}, la machine a retenu {apres} (sa grille)")
-                print(f"  NB : arrondi par la machine à {apres} (grille interne, écart < {dd.ARRONDI_MAX:.1%}).")
-                conforme = True
-            if not conforme:
-                journaliser(f"ECART {ip} {chemin} : demandé {valeur}, relu {apres}")
-                sys.exit(f"ÉCHEC : la valeur relue ({apres}) ne correspond pas à la demande ({valeur}). "
-                         "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage).")
+            print(f"  relu : {r['apres']}")
+        elif a.cmd == "lot":
+            import dbx_reglage as dr
+            o = _options(a)
+            try:
+                items, cfg = dr.lire_lot(a.args[1])
+                o.config = o.config or cfg
+                r = dr.lot(d, ip, items, o, avant_ecriture=lambda: instantane_avant(d, ip, "avant-lot"))
+                if r.get("instantane"):
+                    print(f"Instantané complet avant le lot : {r['instantane']}")
+            except dr.Refus as e:
+                sys.exit(f"REFUS : {e}. Rien n'a été écrit.")
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}. Rien n'a été écrit.")
+            print(f"Config de référence (plafonds, voies) : {o.config or 'AUCUNE'}"
+                  + (" (prise dans le fichier de lot)" if not a.config and o.config else ""))
+            for p in r["prevus"]:
+                print(f"  {p['alias']:28} {str(p['avant']):>14} → {p['demande']:<14}"
+                      + (f" ({p['pas']} pas)" if p["pas"] > 1 else "") + "".join(f" [{n_}]" for n_ in p["notes"]))
+            if not o.appliquer:
+                print(f"SIMULATION — {len(r['prevus'])} réglage(s) contrôlé(s), rien n'a été écrit (ajouter --appliquer).")
+                return
+            if not r["conforme"]:
+                print(f"ÉCHEC : {r['echec']}")
+                for x in r["retour"]:
+                    print(f"  retour arrière {x['chemin']} : {'remis' if x['remis'] else 'NON remis'} "
+                          f"({x.get('relu') or x.get('motif') or x.get('erreur')})")
+                if r.get("retour_interrompu"):
+                    print(f"  RETOUR ARRIÈRE INTERROMPU sur {r['retour_interrompu']} : restaurer l'instantané "
+                          f"{r.get('instantane')} (restaurer --appliquer --protection-validee)")
+                sys.exit(1 if all(x["remis"] or x.get("motif") for x in r["retour"]) else 2)
+            print(f"{len(r['ecrits'])} réglage(s) écrit(s) et relu(s).")
+        elif a.cmd == "chaine":
+            ordre = dd.chaine_sortie_machine(d)
+            print(json.dumps(ordre, ensure_ascii=False, indent=1))
+            if a.enregistrer:
+                if ordre["chaine_sortie"] == "indetermine":
+                    sys.exit("REFUS : ordre indéterminé, rien n'est enregistré.")
+                import dbx_plan
+                out = dbx_plan.enregistrer_chaine(ordre, d.get("\\\\Node\\AT\\Software_Version"))
+                journaliser(f"CHAINE {ip} : {ordre['chaine_sortie']} enregistrée dans {out} (topologie machine)")
+                print(f"Enregistré : {out}")
+
+
+def _options(a):
+    import dbx_reglage as dr
+    return dr.Options(appliquer=a.appliquer, protection_validee=a.protection_validee, signal_valide=a.signal_valide,
+                      config=a.config, voie=a.voie, depasser_plafond=a.depasser_plafond, hors_carte=a.hors_carte,
+                      par_pas=a.par_pas, pas_libre=a.pas_libre, journal=journaliser,
+                      dossier_instantanes=JOURNAL / "instantanes")
 
 
 if __name__ == "__main__":

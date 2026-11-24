@@ -41,10 +41,19 @@ def _arbre():
         a[f"\\\\Preset\\{inst}\\SV"] = {f"Channel_{c}_{p}": v for c in range(1, 7) for p, v in (("Gain", "0.0dB"), ("Mute", "Off"))}
     a["\\\\Preset"] = {k.split("\\")[3]: "" for k in a if k.startswith("\\\\Preset\\")}
     # Réglages d'appareil (classe Venu360Settings de l'appli Windows) — libellés supposés, à confirmer sur la machine
-    a["\\\\Node\\Settings\\SV"] = {**{f"Output{c}Gain": "+12 dBu" for c in range(1, 7)},
+    a["\\\\Node\\Settings\\SV"] = {**{f"Output{c}Gain": "+22 dBu" for c in range(1, 7)},
                                    **{f"Input{c}Gain": "+14 dBu" for c in range(1, 4)},
                                    "LoadedPresetName": "SIMU", "PresetIsModified": "0", "MutesPowerup": "0",
                                    "CurrentSampleRate": "48kHz"}
+    # Topologie (comme \\Node\Config\SV\Config du vrai VENU360 : guillemets remplacés par des accents graves)
+    pomap = [["Inputs3"], [f"CrossoverIIR{n}" for n in range(1, 7)], [f"PEQOut{n}" for n in range(1, 7)], ["ZoneGains"],
+             ["OutputGains"], [f"Limiter{n}" for n in range(1, 7)], [f"DelayOut{n}" for n in range(1, 7)], ["Outputs3"]]
+    cfg = {"gridsOA": [{"Name": "POMap", "Map": pomap}],
+           "wires": [[[f"DelayOut{n}", 0], ["OutputMeters", n - 1]] for n in range(1, 7)]}
+    for g in pomap:
+        for inst in g:
+            cfg[inst] = {"AutoWire": True, "Properties": {"DSP": "dsp3"}}
+    a["\\\\Node\\Config\\SV"] = {"Config": json.dumps(cfg, separators=(",", ":")).replace('"', "`")}
     return a
 
 

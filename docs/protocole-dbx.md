@@ -83,9 +83,27 @@ Points importants tirés du code :
 ## Phase du crossover et ordre de la chaîne de sortie
 - `\\Preset\CrossoverIIR<k>\SV\Band_1_Phase` : −180 à 0 deg (relevé de la description). Effet réel (rotation
   constante ou passe-tout dépendant de la fréquence) : à mesurer par `tools/banc_electrique.py` (amplis coupés).
-- Ordre `PEQOut<k>` / `Limiter<k>` non documenté par dbx : établi par le même banc (bosse de +6 dB à 1 kHz sous un
-  seuil de test bas). Résultat : `data/protocoles/venu360_phase.yaml` (`phase`, `chaine_sortie`). Sans ce fichier :
-  `dbx_plan` refuse toute bosse d'EQ de voie, `optim_preset` saute l'étape phase.
+- Ordre `PEQOut<k>` / `Limiter<k>` : lu dans la topologie (24/11/2026, firmware 2.0.5.0). `\\Node\Config\SV\Config`
+  contient `gridsOA` → `POMap`, la liste ordonnée des blocs ; les blocs `AutoWire: true` d'un même DSP y sont chaînés
+  dans l'ordre. `wires` ne liste que les câblages manuels : prises de mètres (DelayOut<n> → OutputMeters, MidRouter<n>
+  → MidMeters, Inputs2 → Meters123/MetersABC/RTARouter) et routage des Mid (Inputs2 A, B, C, générateur → MidRouter<n>).
+  Chaîne de sortie (dsp3) : Inputs3 → CrossoverIIR<n> → PEQOut<n> → ZoneGains → OutputGains (mute) → Limiter<n> →
+  DelayOut<n> → Outputs3. Donc PEQ de voie et mute AVANT le limiteur.
+  `dbx_hiqnet.py chaine <ip> [--enregistrer]` → `data/protocoles/venu360_phase.yaml` (`chaine_sortie`, `chaine_ordre`) ;
+  `appliquer-plan` le relit en direct avant toute bosse. Le banc électrique (boucle REW) mesure la `phase` ; un ordre
+  « indéterminé » au banc ne remplace pas celui de la topologie.
+- Mètres (24/11/2026) : seuls `Meters123` et `MetersABC` sont poussés par la console (lignes `set "<chemin>" "<val>"`,
+  environ 10/s, valeur efficace). `OutputMeters`, `MidMeters`, `InputMeters`, `Limiter<n>` GainReductionMeter /
+  ThresholdMeter / MaxInputLevel, `Compressor1` : une seule valeur, jamais mise à jour (même sortie démutée, signal présent).
+  Outil : `tools/metres.py` (lecture seule).
+- Générateur : `\\Preset\SignalGenerator\SV\{Signal Generator, Signal Type (Pink/White/Sine), Signal Amplitude (−60…0 dB),
+  Sine Frequency (20 Hz-20 kHz), Signal Route (In1…In7, All)}` ; injection par `InRouter<n>\SV\SignalGeneratorControl`
+  (SignalGeneratorOff/On/MuteAll) ; `MidRouter<n>\SV\SignalGeneratorControl` existe aussi. Constaté : sinus −30 dB
+  → Meters123 / MetersABC à −33,0 dB.
+- `RTARouter\SV\RouteSelect` : choisir « A » rend le paramètre illisible (`get` → error) ; « RTA Mic » le rétablit.
+  Option refusée par la machine dans cette topologie (autotest et lot du 24/11/2026).
+- Niveau de sortie analogique `\\Node\Settings\SV\Output<n>Gain` (+4, +8, +12, +14, +17, +20, +22 dBu ; relu +22) :
+  écrit seulement si la config porte déjà la valeur (`dbx_reglage`), et relu par `appliquer-plan` avant d'écrire.
 - `\\Preset\PEQ1\SV` : PEQ d'entrée 12 bandes (EQ générale du plan v2, `peq_entree`).
 
 ## Encore inconnu

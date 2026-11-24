@@ -242,8 +242,11 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
    l'ordre de la méthode, chaque étape mesurée, corrigée par pas bornés, remesurée et gardée seulement si la mesure
    s'améliore : gains de voie → délais → phase (Band_1_Phase, seulement si le banc électrique l'a caractérisée) → EQ par
    voie (PEQOut, creux d'abord) → EQ générale (PEQ1, liée à la salle). Prérequis une fois par firmware :
-   `tools/banc_electrique.py` (amplis coupés) établit le modèle de phase et l'ORDRE PEQOut / limiteur ; tant qu'il
-   n'est pas fait : pas d'étape phase, et l'EQ ne fait que des creux (une bosse après le limiteur ne serait pas protégée).
+   - ORDRE PEQOut / limiteur : `dbx_hiqnet.py chaine <ip> --enregistrer` (lu dans la topologie de la machine ; établi
+     le 24/11/2026 sur 2.0.5.0 : PEQ et mute AVANT le limiteur) ; sans lui, l'EQ ne fait que des creux ;
+   - modèle de PHASE : `tools/banc_electrique.py` (boucle REW, amplis coupés) ; sans lui, pas d'étape phase.
+   Retouche ponctuelle d'un paramètre (n'importe lequel) : `dbx_hiqnet.py regler <ip> VOIE.bloc.param valeur`, ou un
+   `lot` (retour arrière automatique) — skill `venu360-pilotage` ; pas maximum appliqué par l'outil.
 
 ## Retours de mesure (amélioration de la technique)
 - Chaque essai au micro ajoute à `data/apprentissage/coupures.yaml` les critères PRÉDITS (puissance, lobes,
