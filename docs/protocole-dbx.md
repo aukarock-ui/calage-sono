@@ -80,6 +80,14 @@ Points importants tirés du code :
   Destructifs (refusés par l'outil) : `FactoryRestore`, `BuildDB`, `CopyPresets`, `StorePresetFiles`, suppression.
 - `\\Node\AT\Password`, `Reboot`, `\\Node\Config\SV\Command` : jamais en écriture depuis le kit.
 
+## Phase du crossover et ordre de la chaîne de sortie
+- `\\Preset\CrossoverIIR<k>\SV\Band_1_Phase` : −180 à 0 deg (relevé de la description). Effet réel (rotation
+  constante ou passe-tout dépendant de la fréquence) : à mesurer par `tools/banc_electrique.py` (amplis coupés).
+- Ordre `PEQOut<k>` / `Limiter<k>` non documenté par dbx : établi par le même banc (bosse de +6 dB à 1 kHz sous un
+  seuil de test bas). Résultat : `data/protocoles/venu360_phase.yaml` (`phase`, `chaine_sortie`). Sans ce fichier :
+  `dbx_plan` refuse toute bosse d'EQ de voie, `optim_preset` saute l'étape phase.
+- `\\Preset\PEQ1\SV` : PEQ d'entrée 12 bandes (EQ générale du plan v2, `peq_entree`).
+
 ## Encore inconnu
 - Numéro `<k>` des instances PEQOut/Limiter/DelayOut : supposé = numéro de sortie (1–6) → à confirmer avec `carte`.
 - Mode de câblage interne de Louis : un crossover « Mono 5-Way » (CrossoverIIR1, Band_1…5) ou « 4-Way + sub »

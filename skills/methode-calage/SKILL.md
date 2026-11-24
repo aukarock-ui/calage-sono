@@ -238,6 +238,12 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
 5 bis. **Essai des coupures au micro** (banc avec micro, REW) : `tools/essai_coupures.py` (skill `mesure-acoustique`,
    « Départager des variantes ») mesure le témoin et les 2-3 meilleures variantes, retient la meilleure à la mesure,
    propose le recalage des délais et alimente l'historique qui recale les poids de l'optimiseur.
+5 ter. **Optimisation complète du preset à la mesure** : `tools/optim_preset.py` (skill `mesure-acoustique`), dans
+   l'ordre de la méthode, chaque étape mesurée, corrigée par pas bornés, remesurée et gardée seulement si la mesure
+   s'améliore : gains de voie → délais → phase (Band_1_Phase, seulement si le banc électrique l'a caractérisée) → EQ par
+   voie (PEQOut, creux d'abord) → EQ générale (PEQ1, liée à la salle). Prérequis une fois par firmware :
+   `tools/banc_electrique.py` (amplis coupés) établit le modèle de phase et l'ORDRE PEQOut / limiteur ; tant qu'il
+   n'est pas fait : pas d'étape phase, et l'EQ ne fait que des creux (une bosse après le limiteur ne serait pas protégée).
 
 ## Retours de mesure (amélioration de la technique)
 - Chaque essai au micro ajoute à `data/apprentissage/coupures.yaml` les critères PRÉDITS (puissance, lobes,
@@ -249,6 +255,10 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
 - Jamais appris : contraintes dures (bandes HP, planchers de puissance, pavillon, excursion BR), seuils, garde-fous.
 - Délais alignés à la mesure (témoin) → `recalage-propose.yaml` → `preset_auto --recaler` : le centre acoustique
   effectif de chaque voie corrige tous les calculs suivants.
+- Optimisation complète (`optim_preset conclure`) → `recalage-propose.yaml` : délais, écart de niveau par voie
+  (→ `correction_sensibilite_db`), phase et EQ de voie (= réponse propre de la voie dans sa caisse, réutilisée par les
+  plans suivants du même système) ; `eq-generale.yaml` à part (salle, `preset_auto --eq-generale`, noté dans la fiche
+  événement) ; historique `data/apprentissage/preset.yaml`.
 - Noter dans ETAT ce que chaque essai a appris (prédit / mesuré, poids, centres acoustiques).
 
 ## Appliquer les réglages

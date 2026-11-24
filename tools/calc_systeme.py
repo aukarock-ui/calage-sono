@@ -107,7 +107,8 @@ def chemin_recalage(chemin_config) -> Path:
     return p.with_name(p.stem + ".recalage.yaml")
 
 
-CHAMPS_RECALAGE_VOIE = {"gain_canal_db", "accord_event_hz", "correction_sensibilite_db"}
+CHAMPS_RECALAGE_VOIE = {"gain_canal_db", "accord_event_hz", "correction_sensibilite_db",
+                        "phase_deg", "peq"}     # phase et EQ de voie : mesurées par optim_preset (bornes : preset_auto)
 
 
 def fusionner_recalage(cfg: dict, rec: dict | None) -> dict:

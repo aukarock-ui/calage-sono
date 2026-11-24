@@ -99,6 +99,9 @@ dbx_hiqnet.py appliquer-plan <ip> plans/<sys>-techno-reglages.json --case 27 --n
 `tools/dbx_plan.py` refuse hors ligne un plan BLOQUANT, un autre processeur, un seuil au-dessus du plafond recalculé,
 un plan qui ne correspond plus à la config actuelle (il est régénéré et comparé : sorties, filtres, polarité, seuils),
 une config hors `data/configs/`, un gain > 0 dB ou un délai hors [0, 30] ms. Seuils arrondis vers le bas.
+Plan v2 (`optim_preset`) : `phase_deg` (Band_1_Phase, bornée à −135…0 : −180° = inversion, décision de Louis), `peq` par voie (PEQOut, ≤ 8 bandes, ±12 dB, bosse ≤ +6,
+Q 0,3-10) et `peq_entree` (PEQ1, EQ générale) ; toute bosse de voie refusée tant que `data/protocoles/venu360_phase.yaml`
+n'établit pas `chaine_sortie: peq_avant_limiteur` (banc électrique). Plan v1 toujours accepté (phase 0, PEQ Off).
 Topologie exigée : une sortie = un crossover indépendant (`CrossoverIIR<n>` à une seule bande, `Limiter<n>`,
 `DelayOut<n>`). Le gain de voie est écrit dans le crossover (`CrossoverIIR<n>\SV\Band_1_Gain`, choix de Louis :
 réglé au même endroit que les filtres) ; OutputGains reste à 0 dB. Les deux sont avant le limiteur. Charger d'abord un preset « 6 × Mono Fullrange » (case 29 sur la machine de Louis) ; sinon refus

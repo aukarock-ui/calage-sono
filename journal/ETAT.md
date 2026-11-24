@@ -3,6 +3,37 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-24 (suite 5) : optimisation complète du preset à la mesure (outils, simulation seulement)
+- Demande de Louis : optimiser à la mesure gains de voie, calage temporel, phase (Band_1_Phase du crossover), EQ par
+  voie, EQ générale, et renvoyer les écarts dans le calcul. Plan validé (plan mode).
+- `tools/banc.py` : garde-fous de mesure communs (Seance : niveau par voie, re-mute sur erreur, rétablissement de
+  l'état du lancement, simulation jamais démutée) ; `essai_coupures` l'utilise (tests inchangés).
+- Plan v2 (`preset_auto`, `dbx_plan`) : `phase_deg`, `peq` par voie (PEQOut), `peq_entree` (PEQ1) ; bornes ; bosse de
+  voie refusée tant que l'ordre PEQ/limiteur n'est pas établi. `--recaler` accepte `phase_deg` et `peq`.
+- `tools/eq_auto.py` : ajustement glouton de bandes (RBJ), creux d'abord, creux étroits jamais remplis (largeur lue
+  sur la courbe non lissée), pas de bosse sous 1,5 × HPF.
+- `tools/optim_preset.py` (preparer / mesurer / egaliser / conclure) et `tools/banc_electrique.py` (modèle de phase,
+  ordre PEQOut/limiteur, contrôles gain/délai ; amplis coupés ; `--enregistrer` → `data/protocoles/venu360_phase.yaml`).
+- Simulation CKI techno (2 positions, MEDIUM +4 dB de sensibilité et −6 cm, bosses synthétiques MEDIUM 700 Hz /
+  HIGH 5 kHz) : écart de niveau MEDIUM vu à +4,5 dB → ramené à 0,03 dB ; pertes de somme ≤ 0,1 dB après délais ;
+  phase jugée inutile (délais suffisants) ; EQ de voie : écart HIGH 1,47 → 0,58 dB, MEDIUM 1,49 → 1,31 dB
+  (bosse large dans une bande étroite : en partie absorbée par le gain) ; EQ générale 0,96 → 0,54 dB. 191 tests.
+- Revue controleur-securite (1 P1, 9 P2) appliquée : banc électrique — PEQ de sortie mis À PLAT (8 bandes à 0 dB)
+  avant la bosse de test (une bande du preset pouvait la masquer et faire conclure à tort « PEQ avant limiteur »),
+  limiteur de test posé AVANT de retirer les filtres, seuil de test ≤ plafond calculé, résultat simulé jamais
+  enregistré ; ecrire_peq refait (relecture bande par bande, ±3 dB réels, bande reformée à 0 dB, bosse refusée à
+  l'écriture sans ordre de chaîne, arrêt si non atteinte) ; DelayOut toujours suivi ; hausse de gain ≤ +6 dB
+  au-dessus du plan et niveau de mesure baissé d'autant ; écart initial > 6 dB = arrêt (panne probable) ; phase
+  bornée à −135° (−180° = inversion) ; EQ refusée si la réponse COMPOSÉE dépasse +6 dB ; rétablissement incomplet
+  signalé aussi sur le chemin d'erreur.
+- Reste ouvert (décision de Louis) : `optim_preset`/`banc_electrique` écrivent sur la machine avec
+  `--protection-validee` seul (comme essai_coupures), sans `--appliquer` ; « --simulation » ne simule que
+  l'acoustique. Ordre de chaîne mesuré sur une sortie, supposé valable pour les 6.
+- **À faire sur la machine (go de Louis)** : (a) `banc_electrique.py --simulation` puis en vrai, amplis coupés, une
+  sortie en boucle sur l'interface ; (b) le jour du banc micro, `optim_preset` en vrai, écoute, puis recaler +
+  appliquer-plan. Non encore exercé : l'étape phase sur une vraie rotation (le simulateur n'en a pas eu besoin).
+- Questions : firmware du VENU360 (à noter dans venu360_phase.yaml) ; quelle sortie câbler pour le banc électrique.
+
 ## 2026-11-24 (suite 4) : essai des coupures au micro, en autonomie, avec apprentissage
 - Demande de Louis : tester le filtrage optimal pour de vrai, au micro, sans aide, et améliorer la technique grâce aux mesures. Choix de Louis : REW en sweep, un seul micro.
 - **Nouveaux outils** (prêts, sans essai réel pour l'instant) :

@@ -47,7 +47,48 @@ import reglages_pile as rp         # noqa: E402
 
 RACINE = Path(__file__).resolve().parent.parent
 BLOQUANT = re.compile(r"^(DANGER|EXCURSION)|NON CONFIRMÉ|AUCUN seuil|absent de la bibliothèque|invalides", re.I)
-VERSION_PLAN = 1
+VERSION_PLAN = 2          # v2 : phase_deg, peq par voie, peq_entree (EQ générale) — v1 reste lisible par dbx_plan
+TYPES_PEQ = ("Bell", "Low Shelf", "High Shelf")
+PEQ_GAIN_MAX_DB, PEQ_BOSSE_MAX_DB = 12.0, 6.0
+PEQ_Q = (0.3, 10.0)
+PEQ_BANDES_VOIE, PEQ_BANDES_ENTREE = 8, 12
+PHASE_MIN_DEG = -135.0
+
+
+def valider_peq(bandes, n_max: int, quoi: str) -> list[dict]:
+    """Bandes d'EQ {type, hz, gain_db, q} -> liste normalisée ; ValueError si hors bornes (kit, pas machine)."""
+    if bandes in (None, []):
+        return []
+    if not isinstance(bandes, list) or len(bandes) > n_max:
+        raise ValueError(f"{quoi} : liste de {n_max} bandes au plus attendue")
+    out = []
+    for i, b in enumerate(bandes, 1):
+        try:
+            t, hz, g, q = b.get("type", "Bell"), float(b["hz"]), float(b["gain_db"]), float(b.get("q", 1.0))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ValueError(f"{quoi} bande {i} : {{type, hz, gain_db, q}} attendus ({b!r})") from None
+        if t not in TYPES_PEQ:
+            raise ValueError(f"{quoi} bande {i} : type {t!r} (choix : {', '.join(TYPES_PEQ)})")
+        if not (20 <= hz <= 20000 and abs(g) <= PEQ_GAIN_MAX_DB and g <= PEQ_BOSSE_MAX_DB
+                and PEQ_Q[0] <= q <= PEQ_Q[1]) or not all(map(__import__("math").isfinite, (hz, g, q))):
+            raise ValueError(f"{quoi} bande {i} : {hz:g} Hz {g:+g} dB Q {q:g} hors bornes (20 Hz-20 kHz, ±"
+                             f"{PEQ_GAIN_MAX_DB:g} dB, bosse ≤ +{PEQ_BOSSE_MAX_DB:g} dB, Q {PEQ_Q[0]:g}-{PEQ_Q[1]:g})")
+        out.append({"type": t, "hz": round(hz, 1), "gain_db": round(g, 1), "q": round(q, 2)})
+    import numpy as np
+    import eq_auto
+    f = 20.0 * 2 ** (np.arange(0, 241) / 24)
+    pic = float(np.max(20 * np.log10(np.abs(eq_auto.reponse(out, f))))) if out else 0.0
+    if pic > PEQ_BOSSE_MAX_DB + 0.05:      # bandes cumulées : la réponse composée compte, pas chaque bande
+        raise ValueError(f"{quoi} : réponse composée de {pic:+.1f} dB au plus haut (> +{PEQ_BOSSE_MAX_DB:g} dB)")
+    return out
+
+
+def valider_phase(x, quoi: str) -> float:
+    x = float(x or 0.0)
+    if not PHASE_MIN_DEG <= x <= 0.0:
+        raise ValueError(f"{quoi} : phase {x:g}° hors [{PHASE_MIN_DEG:g}, 0]° (crossover VENU360 : −180…0 ; au-delà de "
+                         "−135°, c'est une inversion de polarité : décision de Louis, par la polarité)")
+    return round(x, 1)
 
 
 def _bass_reflex(v: dict) -> bool:
@@ -104,8 +145,14 @@ def _filtre(txt) -> dict | None:
 
 
 def construire_plan(chemin_config: str, style: str | None = None, distance_m: float = 20.0,
-                    hauteur_ecoute_m: float = 1.7, accepter_non_verifie: bool = False) -> dict:
+                    hauteur_ecoute_m: float = 1.7, accepter_non_verifie: bool = False,
+                    eq_generale: str | None = None) -> dict:
+    """eq_generale : fichier YAML {bandes: [...]} de l'EQ générale (liée à la salle, mesurée par optim_preset)."""
     mat, cfg = cs.charger(chemin_config)
+    peq_entree = []
+    if eq_generale:
+        doc = yaml.safe_load(Path(eq_generale).read_text(encoding="utf-8")) or {}
+        peq_entree = valider_peq(doc.get("bandes"), PEQ_BANDES_ENTREE, f"EQ générale {Path(eq_generale).name}")
     style = style or cfg.get("style_defaut") or "plat"
     if style not in rp.STYLES:
         raise ValueError(f"style inconnu « {style} » : {', '.join(rp.STYLES)}")
@@ -169,6 +216,8 @@ def construire_plan(chemin_config: str, style: str | None = None, distance_m: fl
             "hpf": hpf, "lpf": _filtre(f.get("lpf")), "polarite": v.get("polarite", "normale"),
             "gain_db": g.get("gain_style_db"),
             "delai_ms": round(dl["voies"][nom]["delai_ms"], 2) if dl else None,
+            "phase_deg": valider_phase(v.get("phase_deg"), f"{nom}.phase_deg"),
+            "peq": valider_peq(v.get("peq"), PEQ_BANDES_VOIE, f"{nom}.peq"),
             "limiteur": {"seuil": r.get("seuil_limiteur"), "unite": r.get("unite_seuil"),
                          "attaque_ms": t["attaque_appareil_ms"], "relachement_db_s": t["relachement_appareil_db_s"],
                          "detection": "crete" if crete else "rms",
@@ -198,6 +247,7 @@ def construire_plan(chemin_config: str, style: str | None = None, distance_m: fl
         "date": dt.datetime.now().isoformat(timespec="seconds"), "processeur": cfg.get("processeur"),
         "style": style, "profil": vo.get("profil"), "accepte_non_verifie": accepter_non_verifie, "distance_m": distance_m, "hauteur_ecoute_m": hauteur_ecoute_m,
         "recalage": cfg.get("_recalage"),
+        "eq_generale": str(Path(eq_generale).as_posix()) if eq_generale else None, "peq_entree": peq_entree,
         "voies": voies, "sorties_inutilisees": sorted(set(range(1, n_sorties + 1)) - utilisees),
         "voie_limitante": vo.get("voie_limitante"), "niveau": niveau,
         "reserves_db": {k: x.get("reserve_db") for k, x in vo["voies"].items() if "reserve_db" in x},
@@ -325,6 +375,12 @@ def recaler(chemin_config: str, chemin_mesures: str, distance_m: float | None = 
             rec["voies"].setdefault(nom, {})["correction_sensibilite_db"] = round(avant + float(x["ecart_niveau_db"]), 1)
             ecarts.setdefault(nom, {})["niveau"] = {"ecart_db": x["ecart_niveau_db"],
                                                     "correction_cumulee_db": round(avant + float(x["ecart_niveau_db"]), 1)}
+        if x.get("phase_deg") is not None:       # mesurés par optim_preset : bornés comme dans un plan
+            rec["voies"].setdefault(nom, {})["phase_deg"] = valider_phase(x["phase_deg"], f"mesures {nom}.phase_deg")
+            ecarts.setdefault(nom, {})["phase_deg"] = {"avant": v.get("phase_deg"), "mesure": x["phase_deg"]}
+        if x.get("peq") is not None:
+            rec["voies"].setdefault(nom, {})["peq"] = valider_peq(x["peq"], PEQ_BANDES_VOIE, f"mesures {nom}.peq")
+            ecarts.setdefault(nom, {})["peq"] = {"n_bandes": len(x["peq"])}
     date = str(mes.get("date") or dt.date.today().isoformat())
     rec["date"] = date
     rec["historique"].append({"date": date, "fichier": Path(chemin_mesures).as_posix(), "point": {"distance_m": d_m,
@@ -351,6 +407,7 @@ def main():
     ap.add_argument("--accepter-non-verifie", action="store_true",
                     help="HPF bass-reflex non vérifiable (accord/volume inconnus) accepté par Louis : noté dans le plan")
     ap.add_argument("--feuille", action="store_true", help="affiche la feuille de saisie Markdown")
+    ap.add_argument("--eq-generale", help="fichier YAML de l'EQ générale mesurée (optim_preset), propre à la salle")
     ap.add_argument("-o", "--sortie", help="plan JSON (défaut plans/<systeme>-<style>-reglages.json)")
     a = ap.parse_args()
     if a.recaler:
@@ -365,7 +422,7 @@ def main():
             print(f"  {nom} : " + " · ".join(f"{k} {v}" for k, v in e.items()))
         print("Régénérer le plan : preset_auto.py <config> --style … (les corrections sont prises en compte).")
         return
-    plan = construire_plan(a.config, a.style, a.distance, a.hauteur_ecoute, a.accepter_non_verifie)
+    plan = construire_plan(a.config, a.style, a.distance, a.hauteur_ecoute, a.accepter_non_verifie, a.eq_generale)
     out = Path(a.sortie or RACINE / "plans" / f"{plan['systeme']}-{plan['style']}-reglages.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")

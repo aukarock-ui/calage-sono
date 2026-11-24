@@ -33,6 +33,10 @@ def _arbre():
         a[f"\\\\Preset\\Limiter{k}\\SV"] = {"Limiter": "On", "Threshold": "-20.0dB", "OverEasy": "Off", "Auto": "Off", "Attack": "10.0ms",
                                                "Hold": "0.0ms", "Release": "45.0dB/s", "PeakStopPlus": "On", "OvershootDb": "6.0dB"}
         a[f"\\\\Preset\\DelayOut{k}\\SV"] = {"Delay": "On", "Amount": "0ms/0ft/0m"}
+    peq = {"ParametricEQ": "Off"}                       # PEQ d'entrée (12 bandes)
+    for b in range(1, 13):
+        peq.update({f"Band_{b}_Type": "Bell", f"Band_{b}_Frequency": "1kHz", f"Band_{b}_Gain": "0.0dB", f"Band_{b}_Q": "1.0", f"Band_{b}_Slope": "3.0"})
+    a["\\\\Preset\\PEQ1\\SV"] = peq
     for inst in ("OutputGains", "ZoneGains"):
         a[f"\\\\Preset\\{inst}\\SV"] = {f"Channel_{c}_{p}": v for c in range(1, 7) for p, v in (("Gain", "0.0dB"), ("Mute", "Off"))}
     a["\\\\Preset"] = {k.split("\\")[3]: "" for k in a if k.startswith("\\\\Preset\\")}

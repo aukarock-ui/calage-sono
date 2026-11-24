@@ -46,7 +46,10 @@ def verifier_coherence(plan: dict) -> list[str]:
     recalculés ; sinon refus (config modifiée depuis, ou JSON édité). Renvoie des notes."""
     import preset_auto
     neuf = preset_auto.construire_plan(str(chemin_config(plan)), plan["style"], plan["distance_m"],
-                                       plan["hauteur_ecoute_m"], bool(plan.get("accepte_non_verifie")))
+                                       plan["hauteur_ecoute_m"], bool(plan.get("accepte_non_verifie")),
+                                       plan.get("eq_generale"))
+    if plan.get("version", 1) >= 2 and (plan.get("peq_entree") or []) != neuf["peq_entree"]:
+        raise ValueError("EQ générale du plan ≠ fichier d'EQ générale actuel — régénérer le plan")
     if neuf["bloquant"]:
         raise ValueError("la config actuelle donne un plan BLOQUANT : " + " / ".join(neuf["bloquants"]))
     a, b = {v["nom"]: v for v in plan["voies"]}, {v["nom"]: v for v in neuf["voies"]}
@@ -63,6 +66,10 @@ def verifier_coherence(plan: dict) -> list[str]:
             a_, b_ = v.get(cle), w.get(cle)
             if (a_ is None) != (b_ is None) or (a_ is not None and abs(float(a_) - float(b_)) > tol):
                 raise ValueError(f"{nom}.{cle} : plan {a_} ≠ recalculé {b_} — régénérer le plan")
+        if plan.get("version", 1) >= 2:
+            if abs(float(v.get("phase_deg") or 0) - float(w.get("phase_deg") or 0)) > 0.5 or \
+                    (v.get("peq") or []) != (w.get("peq") or []):
+                raise ValueError(f"{nom} : phase ou EQ de voie du plan ≠ recalage actuel — régénérer le plan")
         if float(v["limiteur"]["seuil"]) > float(w["limiteur"]["seuil"]):
             raise ValueError(f"{nom} : seuil du plan {v['limiteur']['seuil']} au-dessus du seuil recalculé "
                              f"{w['limiteur']['seuil']} — régénérer le plan")
@@ -76,8 +83,16 @@ def _f(hz: float) -> str:
 
 def ecritures(plan: dict, depasser_plafond: bool = False) -> tuple[list[tuple[str, str, str, bool]], list[str]]:
     """Plan -> [(chemin, valeur, voie, protection)] dans l'ordre d'écriture, + notes de plafond. ValueError si refus."""
-    if plan.get("version") != 1:
+    if plan.get("version") not in (1, 2):
         raise ValueError(f"version de plan inconnue : {plan.get('version')}")
+    import preset_auto
+    v2 = plan["version"] == 2
+    bosses = [f"{v['nom']} {b['hz']:g} Hz {b['gain_db']:+g} dB" for v in plan["voies"] for b in (v.get("peq") or [])
+              if b["gain_db"] > 0]
+    if bosses and chaine_sortie() != "peq_avant_limiteur":
+        raise ValueError(f"bosses d'EQ de voie ({', '.join(bosses)}) refusées : ordre PEQOut / Limiter non établi "
+                         "par le banc électrique (data/protocoles/venu360_phase.yaml, chaine_sortie) — une bosse après "
+                         "le limiteur ne serait pas protégée")
     if plan.get("bloquant"):
         raise ValueError("plan BLOQUANT : " + " / ".join(plan.get("bloquants") or []))
     if not any(p in str(plan.get("processeur")) for p in PROCESSEURS):
@@ -114,16 +129,45 @@ def ecritures(plan: dict, depasser_plafond: bool = False) -> tuple[list[tuple[st
         # Gain de voie dans le CROSSOVER (choix de Louis, 24/11/2026 : réglé et lu au même endroit que les filtres) ;
         # le gain de sortie (OutputGains) reste à 0 dB. Les deux sont avant le limiteur : protections inchangées.
         gain_voie = "0.0dB" if v.get("gain_db") is None else f"{float(v['gain_db']):.1f}dB"
-        reste += [(X + "Gain", gain_voie, nom), (X + "Phase", "0 deg", nom),
-                  (f"{P}OutputGains\\SV\\Channel_{n}_Gain", "0.0dB", nom),
-                  (f"{P}PEQOut{n}\\SV\\ParametricEQ", "Off", nom)]
+        phase = preset_auto.valider_phase(v.get("phase_deg"), f"{nom}.phase_deg") if v2 else 0.0
+        peq = preset_auto.valider_peq(v.get("peq"), preset_auto.PEQ_BANDES_VOIE, f"{nom}.peq") if v2 else []
+        reste += [(X + "Gain", gain_voie, nom), (X + "Phase", f"{phase:g} deg", nom),
+                  (f"{P}OutputGains\\SV\\Channel_{n}_Gain", "0.0dB", nom)]
+        reste += [(c, val, nom) for c, val in _ecritures_peq(f"{P}PEQOut{n}\\SV\\", peq, preset_auto.PEQ_BANDES_VOIE)]
         if v.get("delai_ms") is not None and not 0 <= float(v["delai_ms"]) <= DELAI_MAX_MS:
             raise ValueError(f"{nom} : délai {v['delai_ms']} ms hors [0, {DELAI_MAX_MS:g}] ms refusé")
         if v.get("delai_ms") is not None:
             reste += [(f"{P}DelayOut{n}\\SV\\Amount", f"{v['delai_ms']:.2f}ms", nom),
                       (f"{P}DelayOut{n}\\SV\\Delay", "On" if v["delai_ms"] > 0 else "Off", nom)]
+    if v2:     # EQ générale (entrée) : posée à plat (Off) si le plan n'en a pas
+        peq_e = preset_auto.valider_peq(plan.get("peq_entree"), preset_auto.PEQ_BANDES_ENTREE, "peq_entree")
+        reste += [(c, val, "ENTREE") for c, val in _ecritures_peq(f"{P}PEQ1\\SV\\", peq_e, preset_auto.PEQ_BANDES_ENTREE)]
     out = [(c, val, nom, True) for c, val, nom in prot] + [(c, val, nom, False) for c, val, nom in reste]
     return out, notes
+
+
+def _ecritures_peq(base: str, bandes: list[dict], n_bandes: int) -> list[tuple[str, str]]:
+    """PEQ vide : ParametricEQ Off. Sinon On, bandes écrites, bandes restantes à 0 dB (aucun reste d'un preset)."""
+    if not bandes:
+        return [(base + "ParametricEQ", "Off")]
+    out = []
+    for i in range(1, n_bandes + 1):
+        b = bandes[i - 1] if i <= len(bandes) else {"type": "Bell", "hz": 1000.0, "gain_db": 0.0, "q": 1.0}
+        out += [(base + f"Band_{i}_Type", b["type"]), (base + f"Band_{i}_Frequency", _f(b["hz"])),
+                (base + f"Band_{i}_Q", f"{b['q']:g}"), (base + f"Band_{i}_Gain", f"{b['gain_db']:.1f}dB")]
+    return out + [(base + "ParametricEQ", "On")]
+
+
+FICHIER_BANC_ELECTRIQUE = RACINE / "data" / "protocoles" / "venu360_phase.yaml"   # écrit par banc_electrique.py
+
+
+def chaine_sortie() -> str | None:
+    """Ordre PEQOut / Limiter établi par banc_electrique.py (None tant que non mesuré)."""
+    import yaml
+    f = FICHIER_BANC_ELECTRIQUE
+    if not f.exists():
+        return None
+    return (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("chaine_sortie")
 
 
 def verifier_topologie(d, plan: dict) -> list[str]:

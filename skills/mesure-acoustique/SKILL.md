@@ -96,6 +96,30 @@ Essai à blanc (aucun son) : `mesurer … --simulation [--erreur-sim MEDIUM:-6]`
 réellement écrit dans le processeur, sorties JAMAIS démutées (mutes virtuels) ; sert à vérifier la chaîne avant le jour
 du banc. Limites : SIGTERM non intercepté ; Ctrl-C ne stoppe pas un sweep REW en cours (sorties mutées).
 
+## Optimiser tout le preset : `tools/optim_preset.py` (automatique, REW, un micro)
+Prérequis : ceux de l'essai des coupures ; et, une fois par firmware, le **banc électrique**
+`banc_electrique.py <config> --sortie N --ip <ip> --amplis-coupes --signal-autorise --protection-validee [--enregistrer]`
+(boucle sortie N → entrée de l'interface, AMPLIS ÉTEINTS) : modèle de Band_1_Phase (constante / retard / table),
+ordre PEQOut / limiteur (seuils de test toujours plus bas que l'actuel), contrôles gain et délai. `--enregistrer`
+écrit `data/protocoles/venu360_phase.yaml` seulement si tout est conforme et rétabli.
+1. `optim_preset.py preparer data/configs/<sys>.yaml --style <style> --positions P1:20x1.7,P2:20x1.2,P3:10x1.7
+   [--etapes gains,delais,phase,eq-voies,eq-generale] [--eq-generale <yaml>]` : aucun accès machine, aucun son.
+2. Micro en P1, « go » de Louis (niveau sûr, personne exposé, pas de concert) :
+   `optim_preset.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise`.
+   P1 : plan écrit sorties mutées ; GAINS (niveau de chaque voie seule dans sa bande intérieure contre la cible du
+   style, `Band_1_Gain` ±3 dB par écriture, gains ≤ 0) ; DÉLAIS (comme l'essai) ; PHASE (raccords à perte de somme
+   > 0,5 dB : rotation de la voie basse prédite par le modèle du banc, ±45° par écriture, gardée seulement si la
+   mesure confirme). Positions suivantes : réglages trouvés réécrits, voies seules et système (moyenne spatiale).
+3. Micro laissé à la dernière position : `optim_preset.py egaliser <dossier> --ip …` → EQ PAR VOIE (moyenne
+   spatiale ; fréquences fiables = écart entre positions < 2 dB ; creux étroits jamais remplis ; bosses ≤ +3 dB, jamais
+   sous 1,5 × HPF, et seulement si le banc a établi « PEQ avant limiteur ») puis EQ GÉNÉRALE (système, Q ≤ 2,
+   Σ|gain| ≤ 6 dB, 40 Hz/1,5 × HPF – 12 kHz). ±3 dB par écriture ; retirée si la mesure ne s'améliore pas.
+4. `optim_preset.py conclure <dossier>` → `rapport.md` avant/après, `recalage-propose.yaml`, `eq-generale.yaml`,
+   historique. Rien n'est stocké dans le processeur : preset définitif = `preset_auto --recaler` + `preset_auto
+   [--eq-generale]` + `appliquer-plan`, après écoute et « go » de Louis.
+Garde-fous identiques à l'essai (banc.Seance) ; seuils, filtres et polarité jamais modifiés par l'optimisation.
+Essai à blanc : `--simulation` (machine jamais démutée).
+
 ## Recalage des calculs par la mesure (`preset_auto --recaler`)
 Après application d'un plan, mesurer et noter dans `mesures/<sys>-<date>.yaml` :
 ```yaml
