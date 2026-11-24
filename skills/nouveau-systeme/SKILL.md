@@ -28,6 +28,7 @@ Interdit : compléter une spec « de mémoire » ou par analogie avec un modèle
 6. **Géométrie de pile** (pour les délais calculés) → `geometrie_pile` : hauteur du centre de chaque HP au-dessus
    du sol, retrait du HP derrière la face avant, longueur des pavillons ; une photo de la pile aide
    (`data/configs/photos/`). Centres acoustiques = hypothèses jusqu'à l'IR.
+   Moteurs à compression : quel **pavillon** (modèle) → `pavillon:` de la voie (couverture et coupure mini dans `materiel.yaml > pavillons`).
 7. **Caisses bass-reflex** : accord (mesure d'impédance) et volume net si connus ; sinon une plage supposée →
    `hypotheses_caisse` (le HPF est vérifié sur toute la plage). **Style par défaut** → `style_defaut`.
 8. **Composants absents de la bibliothèque** : demander la fiche PDF, relever les valeurs, les ajouter avec la source.

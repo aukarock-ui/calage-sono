@@ -195,9 +195,27 @@ Repères qualitatifs par style, à affiner à la mesure et à l'oreille :
 - NOISE : large dynamique, limiteurs permissifs (dans les limites de sécurité).
 Les préférences propres à un système (ex. MA Sono : réglages fixes, voicing bass-heavy) sont dans sa config, champ `preferences`.
 
+## Choix des coupures (`tools/coupures.py`)
+Grille au 1/6 d'octave par raccord, pente de la config conservée.
+- **Contraintes dures** (bibliothèque) : bande du HP ; `coupure_min_recommandee_hz` ; `puissance_specifiee_au_dessus_hz`
+  (sous cette fréquence, le seuil calculé ne protège plus : CP650Ti ≥ 1 kHz) ; `coupure_min_hz` du pavillon ; HPF
+  bass-reflex revérifié par excursion_br, et jamais abaissé s'il n'est pas vérifiable ; voie intermédiaire ≥ 1 octave.
+- **Critères (dB)** :
+  - puissance de programme : énergie du profil dans la bande de chaque voie, filtres compris, contre sa capacité ;
+    la voie la plus chargée fixe le niveau, et élargir une bande la charge ;
+  - lobes verticaux au raccord : deux sources égales, écartement de `geometrie_pile`, perte moyenne sur le public ;
+  - écart de directivité à la demi-couverture du pavillon (piston 2·J1(x)/x contre −6 dB du pavillon).
+- **Score** = puissance − lobes − 0,5 × directivité (poids = hypothèses). Les variantes à moins de 0,5 dB de la
+  meilleure sont équivalentes : l'outil conseille la plus proche de l'actuel. On départage les 2-3 premières à la
+  mesure (ONAX + hauteur) et à l'écoute.
+- **Limites** : sensibilité de fiche supposée plate dans la bande ; HP seul (ni réseau de HP, ni caisse) ;
+  facteur de crête ignoré.
+
 ## Chemin rapide (pile à composants, n'importe quelle config)
 1. Config complète (skill `nouveau-systeme`) : voies, amplis, `crossover`, `geometrie_pile`, `hypotheses_caisse`
    (accord/volume supposés tant que non mesurés), `style_defaut`.
+1 bis. **Coupures** : `python tools/coupures.py data/configs/<sys>.yaml --style <style> [--public 5-30]` classe les
+   variantes (section « Choix des coupures ») ; Louis choisit, on corrige `crossover`.
 2. `python tools/preset_auto.py data/configs/<sys>.yaml --style <style> [--distance D]` → plan neutre
    `plans/<sys>-<style>-reglages.json` + feuille `.md`. Il enchaîne calc_systeme (seuils), excursion_br (HPF des BR
    sur toute la plage d'hypothèses, HPF minimal proposé s'il ne tient pas), reglages_pile (temps Proel, délais,

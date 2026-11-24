@@ -56,6 +56,7 @@ voies:
     mode: stereo
     gain_canal_db: 32
     charge: "CP650Ti sur EV HP640"
+    pavillon: EV_HP640             # materiel.yaml > pavillons (couverture, coupure mini) : coupures.py
   - nom: SUPER
     type: composants
     sortie: 5

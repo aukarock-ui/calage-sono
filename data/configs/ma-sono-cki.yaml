@@ -58,6 +58,7 @@ voies:
     mode: parallele
     gain_canal_db: 32             # gain fixe constructeur (40×)
     charge: "CP650Ti sur EV HP640"
+    pavillon: EV_HP640             # materiel.yaml > pavillons (couverture, coupure mini) : coupures.py
 
 # Point de départ : coupures validées sur ma-sono-actuel (oct. 2026), sans SUPER -> HIGH sans passe-bas. À re-valider par mesure.
 crossover:

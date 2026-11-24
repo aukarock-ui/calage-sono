@@ -28,6 +28,7 @@ voies:
     gain_canal_db: null
     charge: null                   # BR / clos / pavillon / BP + description
     accord_event_hz: null
+    pavillon: null                 # clé de materiel.yaml > pavillons (moteur à compression) : couverture, coupure mini
     # --- type constructeur / amplifiee ---
     enceinte: null                 # ex. "L-Acoustics KS28", "d&b SL-SUB"
     preset_constructeur: null      # ex. "KS28_60", "[SL-SUB] 100 Hz"

@@ -218,7 +218,7 @@ def markdown(plan: dict) -> str:
     if plan["bloquant"]:
         l += ["## ⛔ BLOQUANT — ne pas appliquer", *[f"- {b}" for b in plan["bloquants"]], ""]
     l += ["## Feuille de saisie (une ligne par sortie, protections d'abord)", "",
-          "| Sortie | Voie | HPF | LPF | Polarité | Limiteur seuil | Attaque | Relâchement | Détection | Délai | Gain |",
+          "| Sortie | Voie | HPF | LPF | Polarité | Limiteur seuil | Attaque | Relâchement | Détection | Délai | Gain (crossover) |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for v in sorted(plan["voies"], key=lambda x: x["sortie"] or 0):
         h, lp, li = v["hpf"], v["lpf"], v["limiteur"]

@@ -60,6 +60,7 @@ haut_parleurs:
     sensibilite_db_1w1m: 110     # sur pavillon TD-460, PAS sur HP640
     bande_hz: [600, 18000]
     coupure_min_recommandee_hz: 800
+    puissance_specifiee_au_dessus_hz: 1000   # fiche : 80 W valables au-dessus de 1 kHz -> coupure plus basse = seuil non garanti
     decision_louis: "limité à 75 % de la puissance nominale"
     a_verifier: ["sensibilité réelle sur EV HP640 (mesure)"]
     source_fiche: "Beyma, fiche CP650/Ti : 80 W = RMS max. sinus 2 h au-dessus de 1 kHz ; crossover recommandé 800 Hz ou plus (PDF fourni par Louis le 24/11/2026, docs/references/Beyma_CP650Ti.pdf)"
@@ -87,6 +88,7 @@ pavillons:
     controle_h_des_hz: 500
     controle_v_des_hz: [1250, 1500]
     coupure_min_hz: 500
+    source: "fiche EV HP640 (docs/references/EV_HP640.pdf, fournie par Louis le 24/11/2026)"
 
 amplis:
   # gain_db = gain en tension PAR CANAL (stéréo). En bridge : tension ×2 => +6,02 dB

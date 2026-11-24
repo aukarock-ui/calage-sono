@@ -59,6 +59,10 @@ def verifier_coherence(plan: dict) -> list[str]:
                 raise ValueError(f"{nom}.{cle} : plan {v.get(cle)} ≠ config {w.get(cle)} — régénérer le plan")
         if v["limiteur"].get("detection") != w["limiteur"].get("detection"):
             raise ValueError(f"{nom} : détection du limiteur différente de la config — régénérer le plan")
+        for cle, tol in (("gain_db", 0.05), ("delai_ms", 0.011)):     # 0,011 ms ≈ 1 échantillon à 96 kHz
+            a_, b_ = v.get(cle), w.get(cle)
+            if (a_ is None) != (b_ is None) or (a_ is not None and abs(float(a_) - float(b_)) > tol):
+                raise ValueError(f"{nom}.{cle} : plan {a_} ≠ recalculé {b_} — régénérer le plan")
         if float(v["limiteur"]["seuil"]) > float(w["limiteur"]["seuil"]):
             raise ValueError(f"{nom} : seuil du plan {v['limiteur']['seuil']} au-dessus du seuil recalculé "
                              f"{w['limiteur']['seuil']} — régénérer le plan")
@@ -102,17 +106,22 @@ def ecritures(plan: dict, depasser_plafond: bool = False) -> tuple[list[tuple[st
                 p.append((X + f"{cote}Frequency", "Out"))
         p.append((X + "Polarity", "Inverted" if str(v.get("polarite", "")).lower().startswith("inv") else "Normal"))
         prot += [(c, val, nom) for c, val in p]
-        reste += [(X + "Gain", "0.0dB", nom), (X + "Phase", "0 deg", nom),
-                  (f"{P}PEQOut{n}\\SV\\ParametricEQ", "Off", nom)]
+        for cle in ("gain_db", "delai_ms"):
+            if v.get(cle) is not None and not math.isfinite(float(v[cle])):
+                raise ValueError(f"{nom} : {cle} non fini ({v[cle]})")
         if v.get("gain_db") is not None and float(v["gain_db"]) > GAIN_MAX_DB:
-            raise ValueError(f"{nom} : gain de sortie {v['gain_db']} dB > {GAIN_MAX_DB:g} dB refusé")
+            raise ValueError(f"{nom} : gain de voie {v['gain_db']} dB > {GAIN_MAX_DB:g} dB refusé")
+        # Gain de voie dans le CROSSOVER (choix de Louis, 24/11/2026 : réglé et lu au même endroit que les filtres) ;
+        # le gain de sortie (OutputGains) reste à 0 dB. Les deux sont avant le limiteur : protections inchangées.
+        gain_voie = "0.0dB" if v.get("gain_db") is None else f"{float(v['gain_db']):.1f}dB"
+        reste += [(X + "Gain", gain_voie, nom), (X + "Phase", "0 deg", nom),
+                  (f"{P}OutputGains\\SV\\Channel_{n}_Gain", "0.0dB", nom),
+                  (f"{P}PEQOut{n}\\SV\\ParametricEQ", "Off", nom)]
         if v.get("delai_ms") is not None and not 0 <= float(v["delai_ms"]) <= DELAI_MAX_MS:
             raise ValueError(f"{nom} : délai {v['delai_ms']} ms hors [0, {DELAI_MAX_MS:g}] ms refusé")
         if v.get("delai_ms") is not None:
             reste += [(f"{P}DelayOut{n}\\SV\\Amount", f"{v['delai_ms']:.2f}ms", nom),
                       (f"{P}DelayOut{n}\\SV\\Delay", "On" if v["delai_ms"] > 0 else "Off", nom)]
-        if v.get("gain_db") is not None:
-            reste.append((f"{P}OutputGains\\SV\\Channel_{n}_Gain", f"{v['gain_db']:.1f}dB", nom))
     out = [(c, val, nom, True) for c, val, nom in prot] + [(c, val, nom, False) for c, val, nom in reste]
     return out, notes
 

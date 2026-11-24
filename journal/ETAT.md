@@ -3,6 +3,24 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-24 (suite 3) : optimiseur de coupures, gain de voie dans le crossover
+
+- **Gain de voie** : écrit dans `CrossoverIIR<n>\SV\Band_1_Gain` (choix de Louis, plus facile à contrôler). OutputGains est maintenu à 0 dB.
+- **`tools/coupures.py`** classe les fréquences de coupure.
+  - Contraintes dures tirées de la bibliothèque : bandes des HP, coupure mini, puissance spécifiée (CP650Ti ≥ 1 kHz), pavillon. Pour les bass-reflex, l'excursion est revérifiée à chaque candidat ; si elle n'est pas vérifiable, on ne descend pas sous l'actuel.
+  - Critères :
+    - puissance de programme : énergie du profil dans chaque bande, comparée à la capacité de la voie ;
+    - lobes verticaux ;
+    - directivité face au pavillon.
+  - Des variantes à moins de 0,5 dB sont tenues pour équivalentes : l'outil conseille la plus proche de l'actuel.
+  - Revue controleur-securite traitée :
+    - excursion revérifiée à chaque candidat ;
+    - refus si un HP ou un pavillon est inconnu ;
+    - plafond de combinaisons ;
+    - dbx_plan compare aussi le gain et le délai au plan régénéré, et refuse les valeurs non finies.
+- **CKI techno** : la variante conseillée est 90 / 400 / **1410** Hz, au lieu de 90 / 400 / 1600 (+0,7 dB de score, surtout grâce au raccord de directivité 15"/HP640). KICK/MEDIUM entre 200 et 400 Hz : tout se vaut, à décider à la mesure et à l'écoute. SUB/KICK reste à 90 Hz : sub limitant, HPF du KICK non vérifié.
+  - Point ouvert (décision de Louis) : un LR24 coupé exactement à 1 kHz laisse de l'énergie sous 1 kHz au CP650Ti, alors que sa puissance n'est spécifiée qu'au-dessus. Faut-il un plancher à 1,2-1,3 kHz ou une pente plus raide ? Sans objet à 1410 Hz.
+
 ## 2026-11-24 (suite 2) : chemin rapide config → processeur, profils de programme, techno « exigeant »
 
 - **Nouveaux outils** :

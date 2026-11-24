@@ -7,6 +7,7 @@ Aucun ne remplace une validation sur l'appareil réel.
 from __future__ import annotations
 
 import json
+import math
 import socketserver
 import sys
 import tempfile
@@ -935,3 +936,78 @@ def test_recalage_gain_aberrant_et_champ_interdit(tmp_path):
     calc_systeme.chemin_recalage(cfg).write_text("voies: {SUB: {hp_en_serie: 2}}", encoding="utf-8")
     with pytest.raises(ValueError, match="non recalables"):
         calc_systeme.charger(cfg)
+
+
+# --- coupures.py : optimiseur des points de coupure ----------------------------------------------------------------
+import coupures  # noqa: E402
+
+
+def test_coupures_premier_nul_analytique():
+    # d = λ, référence sur l'axe : premier nul à sin θ = 1/2 -> 30° ; perte infinie (bornée) au nul, nulle sur l'axe
+    c, f = 343.4, 1000.0
+    lam = c / f
+    assert coupures.perte_lobes_db(lam, 0.0, f, c, (10, 10), 0.0, (10, 0.0)) < 1e-6
+    r = 10.0
+    h = r * math.tan(math.radians(30))
+    assert coupures.perte_lobes_db(lam, 0.0, f, c, (r, r), h, (10, 0.0)) > 40
+
+
+def test_coupures_piston():
+    assert coupures.ouverture_piston_deg(0.1146, 50, 343.4) == 180.0          # 18" à 50 Hz : omni
+    assert 40 < coupures.ouverture_piston_deg(0.088, 1600, 343.4) < 80        # 15" à 1,6 kHz : resserré
+    assert abs(coupures.piston_db(0.088, 1e-3, 30, 343.4)) < 1e-6
+
+
+def test_coupures_bornes_cki():
+    mat, cfg = calc_systeme.charger(CKI)
+    v = {x["nom"]: x for x in cfg["voies"]}
+    lo, hi, why = coupures.bornes_raccord(cfg, mat, v["MEDIUM"], v["HIGH"])
+    assert lo == 1000 and hi == 3000 and any("spécifiée au-dessus" in w for w in why)
+
+
+def test_coupures_classement_cki():
+    r = coupures.optimiser(CKI, "techno")
+    assert r["actuel"]["coupures_hz"] == {"SUB/KICK": 90.0, "KICK/MEDIUM": 400.0, "MEDIUM/HIGH": 1600.0}
+    for x in r["classement"]:
+        c = x["coupures_hz"]
+        assert c["MEDIUM/HIGH"] >= 1000 and c["SUB/KICK"] >= 90       # CP650Ti et HPF KICK non vérifiable
+        assert c["KICK/MEDIUM"] / c["SUB/KICK"] >= 2 - 1e-9 and c["MEDIUM/HIGH"] / c["KICK/MEDIUM"] >= 2 - 1e-9
+    assert r["classement"][0]["score"] >= r["actuel"]["score"]
+    assert r["classement"][0] == coupures.optimiser(CKI, "techno")["classement"][0]      # déterministe
+
+
+def test_coupures_elargir_une_voie_la_charge():
+    mat, cfg = calc_systeme.charger(CKI)
+    a = coupures.puissance_programme(cfg, mat, "techno")
+    cfg2 = coupures._avec_coupures(cfg, {("SUB", "KICK"): 180.0}, {("SUB", "KICK"): ("LR", 24)})
+    b = coupures.puissance_programme(cfg2, mat, "techno")
+    assert a["voie_limitante"] == "SUB" and b["niveau_db"] <= a["niveau_db"]
+
+
+def test_plan_gain_dans_le_crossover():
+    l, _ = dbx_plan.ecritures(preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True))
+    d = {c: v for c, v, *_ in l}
+    assert d[_K("CrossoverIIR1/SV/Band_1_Gain")] == "-19.9dB"
+    assert d[_K("OutputGains/SV/Channel_1_Gain")] == "0.0dB"
+
+
+def test_coupures_bass_reflex_verifie_chaque_candidat(tmp_path):
+    def kick_hyp(c):
+        c["hypotheses_caisse"]["KICK"] = {"accord_hz": [45, 55], "volume_l": [250, 350]}
+    cfg_p = _copie_cki(tmp_path, kick_hyp)
+    r = coupures.optimiser(cfg_p, "techno", top=10)
+    mat, cfg = calc_systeme.charger(cfg_p)
+    kick = {v["nom"]: v for v in cfg["voies"]}["KICK"]
+    v_hp = calc_systeme.calc_voie(kick, mat, cfg)["v_cible_bornes_v"] / kick["hp_en_serie"]
+    hp = mat["haut_parleurs"][kick["hp"]]
+    for x in r["classement"]:
+        f = x["coupures_hz"]["SUB/KICK"]
+        c2 = coupures._avec_coupures(cfg, {("SUB", "KICK"): f}, {("SUB", "KICK"): ("LR", 24)})
+        assert preset_auto.verifier_hpf(kick, c2, hp, v_hp)["statut"] == "ok", f
+
+
+def test_coupures_hp_inconnu_refuse(tmp_path):
+    def faux_hp(c):
+        c["voies"][3]["hp"] = "INCONNU"
+    with pytest.raises(ValueError, match="absent de la bibliothèque"):
+        coupures.optimiser(_copie_cki(tmp_path, faux_hp), "techno")

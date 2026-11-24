@@ -68,6 +68,12 @@ description: Mesurer et analyser la réponse d'un système son (fonction de tran
 4. Tester polarité inversée si l'écart dépasse ±90° sans solution de délai raisonnable.
 5. Valider en mesurant A+B : sommation ≈ +6 dB à Fc pour des niveaux égaux.
 
+## Départager des variantes de coupure (`coupures.py`)
+Pour chaque variante (2-3 au plus), régénérer le plan et l'appliquer (sorties mutées, `appliquer-plan`), puis mesurer
+au même point ONAX et à deux hauteurs (assis / debout, ou plus près) : réponse autour de chaque coupure, trou ou bosse
+de sommation, régularité en hauteur. Puis écouter avec un même morceau de référence. Noter le choix et ses raisons
+dans ETAT.
+
 ## Recalage des calculs par la mesure (`preset_auto --recaler`)
 Après application d'un plan, mesurer et noter dans `mesures/<sys>-<date>.yaml` :
 ```yaml

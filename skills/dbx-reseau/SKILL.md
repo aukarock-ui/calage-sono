@@ -100,7 +100,8 @@ dbx_hiqnet.py appliquer-plan <ip> plans/<sys>-techno-reglages.json --case 27 --n
 un plan qui ne correspond plus à la config actuelle (il est régénéré et comparé : sorties, filtres, polarité, seuils),
 une config hors `data/configs/`, un gain > 0 dB ou un délai hors [0, 30] ms. Seuils arrondis vers le bas.
 Topologie exigée : une sortie = un crossover indépendant (`CrossoverIIR<n>` à une seule bande, `Limiter<n>`,
-`DelayOut<n>`), soit un preset « 6 × Mono Fullrange » (case 29 sur la machine de Louis) chargé d'abord ; sinon refus
+`DelayOut<n>`). Le gain de voie est écrit dans le crossover (`CrossoverIIR<n>\SV\Band_1_Gain`, choix de Louis :
+réglé au même endroit que les filtres) ; OutputGains reste à 0 dB. Les deux sont avant le limiteur. Charger d'abord un preset « 6 × Mono Fullrange » (case 29 sur la machine de Louis) ; sinon refus
 avant toute écriture. Puis : instantané, mute relu, protections d'abord (limiteurs, filtres, polarité ; un échec arrête
 tout, sorties mutées), délais/gains/EQ à plat, relecture finale ; puis, seulement si tout est conforme : démute des
 sorties utilisées (`--demuter`, état relu exigé), stockage (case portant un autre nom : `--ecraser`) + nom relu,
