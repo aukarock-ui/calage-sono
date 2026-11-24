@@ -1,8 +1,5 @@
 # Plan de réglages — ma-sono-cki · style « techno » (profil exigeant)
-Généré le 2026-11-24T11:29:44 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
-
-## ⛔ BLOQUANT — ne pas appliquer
-- KICK : HPF non vérifié en excursion (accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses) — ou --accepter-non-verifie sur décision de Louis
+Généré le 2026-11-24T12:12:07 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
 
 ## Feuille de saisie (une ligne par sortie, protections d'abord)
 
@@ -40,5 +37,6 @@ Plateau atteignable à 20 m ≈ **92.9 dB** pour 108 dB(A) visés par le profil 
 ## Hypothèses (à confirmer par la mesure)
 - Centres acoustiques de `geometrie_pile` : hypothèses tant que l'IR ne les a pas confirmés.
 - SUB : HPF vérifié sur des HYPOTHÈSES de caisse (accord [28.0, 40.0] Hz, volume [400.0, 550.0] L).
+- KICK : HPF non vérifié en excursion (accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses) — ACCEPTÉ par --accepter-non-verifie
 
 Application : dbx VENU360/PA2 → `dbx_hiqnet.py appliquer-plan <ip> <plan.json> --case N --nom "…" --appliquer --protection-validee` ; autre processeur → saisir cette feuille, puis relire à l'écran.

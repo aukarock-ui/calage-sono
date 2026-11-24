@@ -2,11 +2,11 @@
  "version": 1,
  "systeme": "ma-sono-cki",
  "config": "data/configs/ma-sono-cki.yaml",
- "date": "2026-11-24T11:29:44",
+ "date": "2026-11-24T12:12:07",
  "processeur": "DBX_VENU360",
  "style": "techno",
  "profil": "exigeant",
- "accepte_non_verifie": false,
+ "accepte_non_verifie": true,
  "distance_m": 20.0,
  "hauteur_ecoute_m": 1.7,
  "recalage": null,
@@ -188,12 +188,11 @@
   "HIGH : Seuil très bas (< -24 dBFS) : gain ampli trop élevé pour cette voie — envisager de baisser le gain ampli.",
   "PUISSANCE : à 20 m, plateau atteignable ≈ 92.9 dB contre 108 dB(A) visés par le profil « exigeant » (-15.1 dB) — voie limitante SUB. Une seule pile en champ libre : la salle et le couplage ajoutent quelques dB ; sinon ajouter des caisses sur cette voie ou viser un profil plus léger."
  ],
- "bloquants": [
-  "KICK : HPF non vérifié en excursion (accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses) — ou --accepter-non-verifie sur décision de Louis"
- ],
- "bloquant": true,
+ "bloquants": [],
+ "bloquant": false,
  "hypotheses": [
   "Centres acoustiques de `geometrie_pile` : hypothèses tant que l'IR ne les a pas confirmés.",
-  "SUB : HPF vérifié sur des HYPOTHÈSES de caisse (accord [28.0, 40.0] Hz, volume [400.0, 550.0] L)."
+  "SUB : HPF vérifié sur des HYPOTHÈSES de caisse (accord [28.0, 40.0] Hz, volume [400.0, 550.0] L).",
+  "KICK : HPF non vérifié en excursion (accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses) — ACCEPTÉ par --accepter-non-verifie"
  ]
 }

@@ -71,6 +71,8 @@ crossover:
 # (excursion_br) sur TOUTE la plage. SUB : caisse 135×71×63 cm (≈ 600 L brut, ~400-550 L net estimé), accord inconnu.
 hypotheses_caisse:
   SUB: {accord_hz: [28, 40], volume_l: [400, 550]}
+  # KICK : accord et volume inconnus -> HPF LR24 90 Hz NON vérifié en excursion. Décision de Louis (24/11/2026) :
+  # accepté (preset_auto --accepter-non-verifie), à vérifier à la mesure micro (et impédance pour l'accord).
 
 style_defaut: techno
 
