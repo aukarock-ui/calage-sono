@@ -149,6 +149,12 @@ def test_optimisation_complete_simulee(machine, banc_elec, tmp_path):
     out = op.conclure(dos, ajouter_historique=False)
     rec = yaml.safe_load(Path(out["recalage_propose"]).read_text(encoding="utf-8"))
     assert rec["voies"]["MEDIUM"]["ecart_niveau_db"] > 2.5 and rec["voies"]["MEDIUM"]["peq"]
+    assert rec["simulation"] is True
+    with pytest.raises(ValueError, match="SIMULATION"):
+        preset_auto.recaler(CKI, out["recalage_propose"])                      # jamais de recalage par une simulation
+    h = tmp_path / "hist.yaml"
+    op.conclure(dos, ajouter_historique=True, historique=h)
+    assert not h.exists()                                                      # ni d'apprentissage
     assert (dos / "rapport.md").exists()
     # machine rendue à son état d'origine (PEQ de sortie à plat, phase 0, PEQ d'entrée Off)
     for n in range(1, 7):

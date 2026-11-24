@@ -422,6 +422,8 @@ class Seance:
             raise ValueError(f"instantané complet impossible : {e}") from None
         self.resultat["instantane"] = snap
         self.etat.setdefault("instantanes", {})[self.pos["nom"]] = {"fichier": snap, "suivis": self.origine}
+        if self.moteur.simule and self.pos["nom"] not in self.etat.setdefault("simulees", []):
+            self.etat["simulees"].append(self.pos["nom"])     # jamais versé à l'apprentissage ni au recalage
         self.sauver(self.etat)
         self.rep.mkdir(parents=True, exist_ok=True)
         self.journal(f"{self.etiquette} {self.ip} début position {self.pos['nom']} ({self.pos['distance_m']} m, "

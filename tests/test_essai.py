@@ -183,6 +183,10 @@ def test_essai_complet_simule(essai, machine, tmp_path):
     rec = yaml.safe_load(Path(out["recalage_propose"]).read_text(encoding="utf-8"))
     assert rec["voies"]["MEDIUM"]["delai_mesure_ms"] == round(aligne["MEDIUM"], 2)
     h = tmp_path / "historique.yaml"
+    assert out["simulation"] and rec["simulation"]                            # simulé : marqué partout
+    with pytest.raises(ValueError, match="simulé"):
+        ec.ajouter_a_historique(out, h)                                        # jamais versé à l'apprentissage
+    out = dict(out, simulation=False)
     ec.ajouter_a_historique(out, h)
     with pytest.raises(ValueError, match="déjà"):
         ec.ajouter_a_historique(out, h)                                        # ajout seulement, pas de doublon

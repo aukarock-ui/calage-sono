@@ -212,11 +212,11 @@ def conclure(dossier: str | Path, ajouter_historique: bool = True) -> dict:
     out = {"dossier": str(dossier), "systeme": etat["systeme"], "config": etat["config"], "style": etat["style"],
            "date": dt.date.today().isoformat(), "positions": faites, "niveau_dbfs": etat["niveau_dbfs"],
            "variantes": resultats, "gagnante": resultats[0]["id"], "alertes": etat["alertes"],
-           "simulation": None, "regularite_mesuree": len(faites) > 1}
+           "simulation": bool(etat.get("simulees")), "regularite_mesuree": len(faites) > 1}
     _ecrire_atomique(dossier / "resultat.yaml", yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
     _ecrire_atomique(dossier / "rapport.md", rapport(out))
     out["recalage_propose"] = str(_fichier_recalage(dossier, etat, resultats))
-    if ajouter_historique:
+    if ajouter_historique and not out["simulation"]:
         ajouter_a_historique(out)
     return out
 
@@ -231,12 +231,16 @@ def _fichier_recalage(dossier: Path, etat: dict, resultats: list[dict]) -> Path:
     doc = {"date": dt.date.today().isoformat(), "source": f"essai_coupures {dossier.name} (témoin, {p1['nom']})",
            "point": {"distance_m": p1["distance_m"], "hauteur_m": p1["hauteur_m"]},
            "voies": {n: {"delai_mesure_ms": round(ms, 2)} for n, ms in t["delais_alignes_ms"].items()}}
+    doc["simulation"] = bool(etat.get("simulees"))
     _ecrire_atomique(f, yaml.safe_dump(doc, allow_unicode=True, sort_keys=False))
     return f
 
 
 def ajouter_a_historique(out: dict, fichier: Path | None = None) -> None:
-    """Ajout seulement (jamais de réécriture d'une entrée) ; le même essai n'est pas ajouté deux fois."""
+    """Ajout seulement (jamais de réécriture d'une entrée) ; le même essai n'est pas ajouté deux fois ; jamais une
+    simulation (elle fausserait l'apprentissage des poids)."""
+    if out.get("simulation"):
+        raise ValueError("essai simulé : jamais ajouté à l'historique d'apprentissage")
     fichier = Path(fichier or HISTORIQUE)
     h = yaml.safe_load(fichier.read_text(encoding="utf-8")) if fichier.exists() else None
     h = h or {"essais": []}

@@ -137,13 +137,16 @@ def _meme_forme(a: dict, b: dict) -> bool:
                 and abs(a["q"] - b["q"]) <= max(0.02, 0.02 * b["q"]))
 
 
-def _ecrire_val(d, ch: str, val: str) -> None:
+def _ecrire_val(d, ch: str, val: str, journal=None, ip: str = "") -> None:
     desc = dd.decrire_param(d, ch)
     motif = dd.valider_machine(desc, val) if desc else None
     if motif:
         raise Annule(f"{ch} = {val} refusé par la machine ({motif})")
     relu, ok, err = dd.ecrire_et_relire(d, ch, val, desc)
-    if not (ok or dd.arrondi_machine(desc, val, relu, ch)):
+    ok = ok or dd.arrondi_machine(desc, val, relu, ch)
+    if journal:
+        journal(f"OPTIM {ip} {ch} -> {val} (relu {relu}){'' if ok else ' ECART'}")
+    if not ok:
         raise Annule(f"{ch} : écrit {val}, relu {relu} ({err})")
 
 
@@ -161,10 +164,10 @@ def ecrire_peq(d, base: str, visees: list[dict], n_bandes: int, journal, ip: str
     if str(d.get(base + "ParametricEQ")).strip() != "On":
         for i, c in enumerate(lire_peq(d, base, n_bandes), 1):
             if abs(c["gain_db"]) >= 0.05:
-                _ecrire_val(d, base + f"Band_{i}_Gain", "0.0dB")
+                _ecrire_val(d, base + f"Band_{i}_Gain", "0.0dB", journal, ip)
         if not visees:
             return []
-        _ecrire_val(d, base + "ParametricEQ", "On")
+        _ecrire_val(d, base + "ParametricEQ", "On", journal, ip)
     for _ in range(40):
         fini = True
         for i, (c, t) in enumerate(zip(lire_peq(d, base, n_bandes), cibles), 1):
@@ -173,21 +176,21 @@ def ecrire_peq(d, base: str, visees: list[dict], n_bandes: int, journal, ip: str
                 fini = False
                 if abs(c["gain_db"]) >= 0.05:
                     g = c["gain_db"] - max(-PAS_EQ_DB, min(PAS_EQ_DB, c["gain_db"]))
-                    _ecrire_val(d, base + f"Band_{i}_Gain", f"{g:.1f}dB")
+                    _ecrire_val(d, base + f"Band_{i}_Gain", f"{g:.1f}dB", journal, ip)
                     continue
                 for cle, val in (("Type", t["type"]), ("Frequency", _f(t["hz"])), ("Q", f"{t['q']:g}")):
-                    _ecrire_val(d, base + f"Band_{i}_{cle}", val)
+                    _ecrire_val(d, base + f"Band_{i}_{cle}", val, journal, ip)
                 continue
             if abs(c["gain_db"] - tg) >= 0.05:
                 fini = False
                 g = c["gain_db"] + max(-PAS_EQ_DB, min(PAS_EQ_DB, tg - c["gain_db"]))
-                _ecrire_val(d, base + f"Band_{i}_Gain", f"{g:.1f}dB")
+                _ecrire_val(d, base + f"Band_{i}_Gain", f"{g:.1f}dB", journal, ip)
         if fini:
             break
     else:
         raise Annule(f"{base} : EQ non atteinte après 40 passes (valeurs relues ≠ visées)")
     if not visees:
-        _ecrire_val(d, base + "ParametricEQ", "Off")
+        _ecrire_val(d, base + "ParametricEQ", "Off", journal, ip)
     relu = lire_peq(d, base, n_bandes)
     for i, (c, t) in enumerate(zip(relu, cibles), 1):
         if abs(c["gain_db"] - (t["gain_db"] if t else 0.0)) > 0.11 or (t and not _meme_forme(c, t)):
@@ -561,7 +564,9 @@ def conclure(dossier, ajouter_historique: bool = True, historique: Path | None =
             v["peq"] = reg["peq_voies"][n]
         if v:
             voies[n] = v
+    simulees = etat.get("simulees") or []
     recal = {"date": dt.date.today().isoformat(), "source": f"optim_preset {dossier.name}",
+             "simulation": bool(simulees),
              "point": {"distance_m": p1["distance_m"], "hauteur_m": p1["hauteur_m"]}, "voies": voies}
     banc._ecrire_atomique(dossier / "recalage-propose.yaml", yaml.safe_dump(recal, allow_unicode=True, sort_keys=False))
     if reg["peq_entree"]:
@@ -574,7 +579,11 @@ def conclure(dossier, ajouter_historique: bool = True, historique: Path | None =
            "recalage_propose": str(dossier / "recalage-propose.yaml"),
            "eq_generale": str(dossier / "eq-generale.yaml") if reg["peq_entree"] else None}
     banc._ecrire_atomique(dossier / "rapport.md", rapport(out))
-    if ajouter_historique:
+    if simulees:
+        out["alertes"] = out["alertes"] + [f"SIMULATION ({', '.join(simulees)}) : ni historique d'apprentissage, ni "
+                                           "recalage (preset_auto --recaler refuse ce fichier)"]
+        banc._ecrire_atomique(dossier / "rapport.md", rapport(out))
+    if ajouter_historique and not simulees:
         h = Path(historique or HISTORIQUE)
         doc = (yaml.safe_load(h.read_text(encoding="utf-8")) if h.exists() else None) or {"optimisations": []}
         if any(e.get("dossier") == out["dossier"] for e in doc["optimisations"]):

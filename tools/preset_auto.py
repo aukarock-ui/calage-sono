@@ -313,6 +313,8 @@ def recaler(chemin_config: str, chemin_mesures: str, distance_m: float | None = 
     """Compare mesures et modèle, écrit les corrections dans <config>.recalage.yaml (historisées). Ne touche ni la
     config d'origine ni le processeur. Renvoie le résumé des écarts."""
     mes = yaml.safe_load(Path(chemin_mesures).read_text(encoding="utf-8")) or {}
+    if mes.get("simulation"):
+        raise ValueError(f"{chemin_mesures} vient d'une SIMULATION : jamais utilisé pour recaler les calculs")
     mat, cfg = cs.charger(chemin_config)
     voies = {v["nom"]: v for v in cfg["voies"]}
     pt = mes.get("point") or {}

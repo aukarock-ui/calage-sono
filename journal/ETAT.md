@@ -38,6 +38,21 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
   Annonce d'optim_preset (sans --appliquer) sur la vraie machine : 259 paramètres, aucune écriture.
 - Questions : quelle sortie câbler pour le banc électrique.
 
+## 2026-11-24 (suite 6) : nouveaux outils éprouvés sur le VRAI VENU360 (amplis non branchés, go de Louis)
+- Louis : « le processeur n'est pas encore connecté aux amplis, tu peux y aller et tout tester ».
+- `optim_preset` complet (acoustique simulée, écritures réelles, `--appliquer`) : P1 (25 mesures), P2 (9),
+  égalisation (4) ; gains et délais convergés, EQ KICK −1,8 dB à 269 Hz, MEDIUM −1,1 dB à 932 Hz, EQ générale 2 creux,
+  toutes écrites par pas et relues sans écart ; bosses refusées (ordre PEQ/limiteur inconnu), phase sautée.
+  Rétablissement complet à chaque lancement : 259 paramètres suivis = état de départ, sauf les sorties 1-4 laissées
+  MUTÉES (à démuter par Louis).
+- `banc_electrique` sortie 2 (boucle simulée, écritures réelles) : 32 écritures relues, 0 écart, rétablissement
+  complet ; preset CKI toujours = plan 77/77. Résultats de phase et de chaîne SANS VALEUR (boucle simulée) : non
+  enregistrés.
+- Corrigé : chaque écriture d'EQ journalisée une par une ; une simulation n'alimente plus jamais l'apprentissage
+  (historique supprimé) ni le recalage (`--recaler` refuse). 192 tests.
+- Reste à faire en vrai : banc électrique avec une vraie boucle (REW) pour la phase et l'ordre PEQ/limiteur ; puis
+  la mesure au micro.
+
 ## 2026-11-24 (suite 4) : essai des coupures au micro, en autonomie, avec apprentissage
 - Demande de Louis : tester le filtrage optimal pour de vrai, au micro, sans aide, et améliorer la technique grâce aux mesures. Choix de Louis : REW en sweep, un seul micro.
 - **Nouveaux outils** (prêts, sans essai réel pour l'instant) :

@@ -119,7 +119,7 @@ ordre PEQOut / limiteur (seuils de test toujours plus bas que l'actuel), contrô
    [--eq-generale]` + `appliquer-plan`, après écoute et « go » de Louis.
 Sans `--appliquer` (essai, optimisation, banc électrique) : ANNONCE de ce qui serait écrit (blocs, nombre de paramètres, pas), rien n'est touché, code 0 ; on la montre à Louis, puis on relance avec `--appliquer` sur son « go ».
 Garde-fous identiques à l'essai (banc.Seance) ; seuils, filtres et polarité jamais modifiés par l'optimisation.
-Essai à blanc : `--simulation` (machine jamais démutée).
+Essai à blanc : `--simulation` (machine jamais démutée). Une position simulée marque l'essai : jamais ajouté à l'historique d'apprentissage, et `preset_auto --recaler` refuse son `recalage-propose.yaml`.
 
 ## Recalage des calculs par la mesure (`preset_auto --recaler`)
 Après application d'un plan, mesurer et noter dans `mesures/<sys>-<date>.yaml` :
