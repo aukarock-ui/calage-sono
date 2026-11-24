@@ -1,4 +1,7 @@
 # =====================================================================
+# REPLI HORS LIGNE (24/11/2026) : en ligne, `dbx_hiqnet.py` valide d'après la description que le VENU360 donne
+# de lui-même (`ls` sur le paramètre, voir tools/dbx_description.py et data/venu360_description.json).
+# Cette carte ne sert plus qu'au simulateur et à un firmware qui ne se décrirait pas.
 # Carte des paramètres réseau du dbx DriveRack VENU360
 # Source : décompilation de l'appli Android officielle harman.hpro.venu360 v2.0.7 (22/11/2026),
 #          définitions « ProcessingObject » embarquées dans libVENU360_arm64-v8a.so + presets d'usine.

@@ -32,7 +32,7 @@ def _arbre():
         a[f"\\\\Preset\\PEQOut{k}\\SV"] = peq
         a[f"\\\\Preset\\Limiter{k}\\SV"] = {"Limiter": "On", "Threshold": "-20.0dB", "OverEasy": "Off", "Auto": "Off", "Attack": "10.0ms",
                                                "Hold": "0.0ms", "Release": "45.0dB/s", "PeakStopPlus": "On", "OvershootDb": "6.0dB"}
-        a[f"\\\\Preset\\DelayOut{k}\\SV"] = {"Delay": "On", "Amount": "0.00ms"}
+        a[f"\\\\Preset\\DelayOut{k}\\SV"] = {"Delay": "On", "Amount": "0ms/0ft/0m"}
     for inst in ("OutputGains", "ZoneGains"):
         a[f"\\\\Preset\\{inst}\\SV"] = {f"Channel_{c}_{p}": v for c in range(1, 7) for p, v in (("Gain", "0.0dB"), ("Mute", "Off"))}
     a["\\\\Preset"] = {k.split("\\")[3]: "" for k in a if k.startswith("\\\\Preset\\")}
@@ -46,6 +46,66 @@ def _arbre():
 
 ARBRE = _arbre()
 VERROU = threading.Lock()
+
+# Auto-description (comme le vrai VENU360, firmware 2.0.5.0) pour quelques paramètres représentatifs.
+# Les autres ne se décrivent pas : l'outil retombe alors sur la carte YAML.
+_TYPES = ["BW 6", "BW 12", "BW 18", "BW 24", "BW 30", "BW 36", "BW 42", "BW 48", "LR 12", "LR 24", "LR 36", "LR 48"]
+DESC = {}
+for _k in range(1, 7):
+    DESC[f"\\\\Preset\\Limiter{_k}\\SV\\Threshold"] = {"Type": "Float32", "Min": "-60.0dB", "Max": "0.0dB", "num": (-60.0, 0.0, "{:.1f}dB")}
+    DESC[f"\\\\Preset\\DelayOut{_k}\\SV\\Amount"] = {"Type": "Float32", "Min": "0ms/0ft/0m", "Max": "1000ms/1127ft/343m",
+                                                     "num": (0.0, 1000.0, "{:g}ms/0ft/0m")}
+    DESC[f"\\\\Preset\\OutputGains\\SV\\Channel_{_k}_Mute"] = {"Type": "Byte", "EN": ["Off", "On"]}
+for _b in range(1, 6):
+    DESC[f"\\\\Preset\\CrossoverIIR1\\SV\\Band_{_b}_HPType"] = {"Type": "UByte", "EN": _TYPES}
+    DESC[f"\\\\Preset\\CrossoverIIR1\\SV\\Band_{_b}_Gain"] = {"Type": "Float32", "Min": "-60.0dB", "Max": "20.0dB", "num": (-60.0, 20.0, "{:.1f}dB")}
+# Générateur et mètre (bloc ajouté au faux arbre)
+ARBRE["\\\\Preset\\SignalGenerator\\SV"] = {"Signal Generator": "Off", "Signal Amplitude": "-60dB", "Signal Type": "Pink"}
+ARBRE["\\\\Preset\\OutputMeters\\SV"] = {"Meter_1": "-80.0dB"}
+ARBRE["\\\\Preset"].update({"SignalGenerator": "", "OutputMeters": ""})
+DESC["\\\\Preset\\SignalGenerator\\SV\\Signal Generator"] = {"Type": "UByte", "EN": ["Off", "On"]}
+DESC["\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude"] = {"Type": "Float32", "Min": "-60dB", "Max": "0dB", "num": (-60.0, 0.0, "{:g}dB")}
+DESC["\\\\Preset\\OutputMeters\\SV\\Meter_1"] = {"Type": "Float32", "Min": "-80.0dB", "Max": "20.0dB", "Sensor": "true"}
+
+
+def _num(s):
+    import re
+    m = re.match(r"\s*([-+]?\d+(?:\.\d+)?)", str(s))
+    return float(m.group(1)) if m else None
+
+
+def appliquer_comme_la_machine(chemin, valeur):
+    """La vraie machine ne renvoie jamais d'erreur : choix inconnu -> premier choix ; nombre -> borné ;
+    illisible -> borne haute ; virgule -> partie entière."""
+    d = DESC.get(chemin)
+    if not d:
+        return valeur
+    if "EN" in d:
+        return valeur if valeur in d["EN"] else d["EN"][0]
+    lo, hi, fmt = d["num"]
+    v = _num(str(valeur).split(",")[0])
+    v = hi if v is None else min(max(v, lo), hi)
+    return fmt.format(v)
+
+
+def lister_param(chemin):
+    """Réponse de `ls` sur un paramètre, son EN ou son AT (None si le chemin n'est pas décrit)."""
+    base, suffixe = chemin, None
+    for s in ("\\EN", "\\AT"):
+        if chemin.endswith(s):
+            base, suffixe = chemin[: -len(s)], s[1:]
+    d = DESC.get(base)
+    if not d:
+        return None
+    if suffixe == "EN":
+        return {k: str(i) for i, k in enumerate(d.get("EN", []))}
+    if suffixe == "AT":
+        lo, hi = (d["num"][0], d["num"][1]) if "num" in d else (0, len(d.get("EN", [])) - 1)
+        return {"Min": str(lo), "Max": str(hi), "Default": str(lo)}
+    noeud, feuille = base.rpartition("\\")[0], base.rpartition("\\")[2]
+    val = ARBRE.get(noeud, {}).get(feuille)
+    return {"$": val, "f": "0", "Min": d.get("Min", (d.get("EN") or [""])[0]), "Max": d.get("Max", (d.get("EN") or [""])[-1]),
+            "Type": d["Type"], "Sensor": d.get("Sensor", "false"), "Enabled": "true", "AT": "", "EN": ""}
 
 
 class H(socketserver.StreamRequestHandler):
@@ -75,8 +135,12 @@ class H(socketserver.StreamRequestHandler):
                 w("connect logged in as administrator" if p[2] == "administrator" else "error could not connect as administrator")
             elif cmd in ("ls",):
                 w(f'ls "{p[1]}"')
-                for k, v in ARBRE.get(p[1].rstrip("\\"), {}).items():
-                    w(f"{k} : {v}")
+                with VERROU:
+                    rep = lister_param(p[1].rstrip("\\"))
+                    if rep is None:
+                        rep = ARBRE.get(p[1].rstrip("\\"), {})
+                    for k, v in rep.items():
+                        w(f"{k} : {v}")
                 w("endls")
             elif cmd in ("get", "set", "sub", "unsub"):
                 base, _, feuille = p[1].rstrip("\\").rpartition("\\")
@@ -86,8 +150,8 @@ class H(socketserver.StreamRequestHandler):
                         w(f'error "{p[1]}" not found')
                         continue
                     if cmd == "set":
-                        noeud[feuille] = p[2]
-                        w(f'setr "{base}\\{feuille}" "{p[2]}"')
+                        noeud[feuille] = appliquer_comme_la_machine(f"{base}\\{feuille}", p[2])
+                        w(f'setr "{base}\\{feuille}" "{noeud[feuille]}"')
                     elif cmd == "get":
                         w(f'get "{base}\\{feuille}" "{noeud[feuille]}"')
                     elif cmd == "sub":

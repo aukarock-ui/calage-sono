@@ -98,3 +98,25 @@ Points importants tirés du code :
 - `DelayOut<k>\SV\Amount` : écriture en `ms`, `m`, `ft` ou `s` ; la relecture vaut `<ms>ms/<ft>ft/<m>m` (pas 0,01 ms).
 - `\\Node\Settings\SV\Output<k>Gain` : écriture et relecture sous forme de libellé (`+22 dBu`) ; un index nu (`5`) est accepté (→ `+20 dBu`).
 - JSON-RPC `Load ["n"]` : réponse `- Load [3]: loaded sv settings`, de 8 à 18 s. Les instances changent avec la topologie (stéréo liée : instances impaires seulement).
+
+## Auto-description (24/11/2026, firmware 2.0.5.0) — outil `tools/dbx_description.py`
+- `ls "\\Preset"` : liste des blocs de la configuration chargée (60 avec le preset 31 : InputGains, InMixer1-3, Afs1/3, GEQ1/3,
+  PEQ1/3, MidRouter1/5, AutoEQ1/5, CompressorMid1, DelayMid5, CrossoverIIR1/5, PEQOut1-6, Limiter1-6, DelayOut1-6,
+  OutputGains, ZoneGains, SignalGenerator, RTA, RTARouter, mètres…).
+- `ls "<bloc>\SV"` : paramètres du bloc et valeurs affichées.
+- `ls "<bloc>\SV\<param>"` : `$` affichage, `f`/`r` brut, `%` position, `Min`/`Max` affichés, `Type` (Float32, UByte, Byte, ULong,
+  String), `Sensor` (true = mètre), `Enabled`.
+- `ls "…\<param>\EN"` : choix `{libellé: index}`. `ls "…\<param>\AT"` : `Min`/`Max` bruts, `Default`, `Flags`.
+- Unités brutes ≠ affichage pour certains paramètres : délai en **secondes** (`f = 0.0011875` pour 1,19 ms), AFS LiftTime en
+  secondes (affiché `60m` = minutes, ou `3m 10s`), niveau de sortie analogique en index (6 = +22 dBu). D'où l'obligation d'écrire
+  avec l'unité affichée.
+- Bornes déclarées fausses : Q des PEQ d'entrée et de l'AutoEQ déclaré 0,1…128, borné à 16 en réalité. Release affiché Min 360 / Max 5 (inversé).
+- Grilles internes : Release par pas de 10 dB/s environ (218 → 220) ; gains InMixer/MidRouter en loi de fader (−25,7 → −25,5 dB ;
+  −113,7 → −114,0 dB) ; fréquences affichées à 3 chiffres significatifs.
+- Option refusée (`error`) : `RTARouter\SV\RouteSelect = A` dans cette configuration.
+- AFS : modifier `MaxFixedFilters` ou `FilterMode` efface les filtres appris (`Band_n_*` passent à `-`) ; ils se réécrivent
+  (Frequency, Gain, Q, FilterStatus) depuis un instantané.
+- Stockage : `{"method":"Store","params":["27"]}` → résultat nul, le preset prend le nom chargé. Les mutes de zone (ZoneGains 3/4)
+  reviennent à On au rappel : ils ne sont pas mémorisés comme réglés au moment du stockage.
+- Topologie : `\\Node\Config\SV\Config` (JSON aux guillemets remplacés par des accents graves, clé `.builderConfig.Columns`),
+  choix de l'assistant dans `\\Node\SetupWizardCurrentChoices\SV`. Commande `Reconfig` (`\\Node\Config\SV\Command`) non testée, interdite.

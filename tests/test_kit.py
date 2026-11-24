@@ -142,24 +142,24 @@ def lancer_dbx(port, *args, monkeypatch):
 
 
 def test_dbx_seuil_sans_config_refuse(faux_dbx, monkeypatch):
-    assert lancer_dbx(faux_dbx, "set", SEUIL, "-25.0", "--appliquer", "--protection-validee",
+    assert lancer_dbx(faux_dbx, "set", SEUIL, "-25.0dB", "--appliquer", "--protection-validee",
                       monkeypatch=monkeypatch) != 0
 
 
 def test_dbx_seuil_au_dessus_plafond_refuse(faux_dbx, monkeypatch):
-    assert lancer_dbx(faux_dbx, "set", SEUIL, "-10.0", "--appliquer", "--protection-validee",
+    assert lancer_dbx(faux_dbx, "set", SEUIL, "-10.0dB", "--appliquer", "--protection-validee",
                       "--config", CONFIG, "--voie", "SUB", monkeypatch=monkeypatch) != 0
 
 
 def test_dbx_seuil_valide_ecrit_et_relu(faux_dbx, monkeypatch, tmp_path):
-    assert lancer_dbx(faux_dbx, "set", SEUIL, "-25.0", "--appliquer", "--protection-validee",
+    assert lancer_dbx(faux_dbx, "set", SEUIL, "-25.0dB", "--appliquer", "--protection-validee",
                       "--config", CONFIG, "--voie", "SUB", monkeypatch=monkeypatch) == 0
     log = (tmp_path / "ecritures.log").read_text(encoding="utf-8")
     assert "plafond OK" in log
 
 
 def test_dbx_hors_plage_refuse(faux_dbx, monkeypatch):
-    assert lancer_dbx(faux_dbx, "set", SEUIL, "-80.0", "--appliquer", "--protection-validee",
+    assert lancer_dbx(faux_dbx, "set", SEUIL, "-80.0dB", "--appliquer", "--protection-validee",
                       "--config", CONFIG, "--voie", "SUB", monkeypatch=monkeypatch) != 0
 
 
@@ -533,3 +533,170 @@ def test_osm_coherence_nulle_toleree(tmp_path, monkeypatch):
     p.write_text(json.dumps({"ftdata": ft, "timeData": [[0.0, None], [0.1, 0.5]]}), encoding="utf-8")
     assert len(osm_client.charger(str(p))["ftdata"]) == 2
     assert osm_client.pic_ir([[0.0, None], [0.1, 0.5]])["temps_pic_ms"] == 0.1
+
+
+# ---------------- auto-description du VENU360 (constats firmware 2.0.5.0, 24/11/2026) ----------------
+import dbx_description as dd  # noqa: E402
+
+D_SEUIL = {"valeur": "-23.7dB", "min": "-60.0dB", "max": "0.0dB", "type": "Float32", "capteur": False, "actif": True,
+           "choix": [], "min_brut": "-60", "max_brut": "0"}
+D_DELAI = {"valeur": "1.19ms/1.34ft/0.41m", "min": "0ms/0ft/0m", "max": "1000ms/1127ft/343m", "type": "Float32",
+           "capteur": False, "actif": True, "choix": [], "min_brut": "0", "max_brut": "100000"}
+D_TYPE = {"valeur": "LR 24", "min": "BW 6", "max": "LR 48", "type": "UByte", "capteur": False, "actif": True,
+          "choix": ["BW 6", "BW 12", "LR 24", "LR 48"]}
+D_HPF = {"valeur": "1.5kHz", "min": "Out", "max": "20kHz", "type": "Float32", "capteur": False, "actif": True,
+         "choix": [], "min_brut": "15.9", "max_brut": "20000"}
+D_RELEASE = {"valeur": "200dB/s", "min": "360dB/s", "max": "5dB/s", "type": "Float32", "capteur": False, "actif": True,
+             "choix": [], "min_brut": "5", "max_brut": "360"}
+D_LIFT = {"valeur": "60m", "min": "5s", "max": "60m", "type": "Float32", "capteur": False, "actif": True, "choix": [],
+          "min_brut": "5", "max_brut": "3600"}
+
+
+@pytest.mark.parametrize("texte,attendu", [
+    ("1.23kHz", (1230.0, "freq", 10.0)),
+    ("1kHz", (1000.0, "freq", 10.0)),                 # 3 chiffres significatifs, pas ±500 Hz
+    ("1.5ms/1.69ft/0.51m", (1.5, "temps", 0.01)),     # pas plafonné : 0.4 relu 0 = écart
+    ("60m", (3600000.0, "temps", 60000.0)),           # minutes (AFS)
+    ("3m 10s", (190000.0, "temps", 1000.0)),
+    ("4:1", (4.0, "rapport", 1.0)),
+    ("-12.4dB", (-12.4, "niveau", 0.1)),
+])
+def test_dd_analyser(texte, attendu):
+    v, f, p = dd.analyser(texte)
+    assert (round(v, 6), f, round(p, 6)) == attendu
+
+
+@pytest.mark.parametrize("desc,valeur", [
+    (D_SEUIL, "-61dB"), (D_SEUIL, "3dB"), (D_SEUIL, "abc"), (D_SEUIL, "-12,5dB"), (D_SEUIL, " -12.5dB"),
+    (D_SEUIL, "-20"),                                 # sans unité
+    (D_SEUIL, "-20Hz"),                               # mauvaise famille
+    (D_DELAI, "1.5"),                                 # serait lu en SECONDES par la machine
+    (D_DELAI, "1500ms"), (D_DELAI, "5m"),             # « m » = minutes : hors plage
+    (D_TYPE, "lr 24"), (D_TYPE, "LR24"), (D_TYPE, "LR 96"),
+    (D_HPF, "25kHz"), (D_HPF, "out"),
+    (D_RELEASE, "400dB/s"),                           # Min > Max déclarés : bornes remises dans l'ordre
+    ({**D_SEUIL, "capteur": True}, "-20dB"), ({**D_SEUIL, "actif": False}, "-20dB"),
+    ({**D_SEUIL, "type": "String", "valeur": "-29.3 -29.3"}, "-29.3 -29.3"),
+])
+def test_dd_valider_refuse(desc, valeur):
+    assert dd.valider_machine(desc, valeur) is not None
+
+
+@pytest.mark.parametrize("desc,valeur", [
+    (D_SEUIL, "-24.7dB"), (D_SEUIL, "0dB"), (D_DELAI, "1.5ms"), (D_TYPE, "LR 48"), (D_HPF, "Out"),
+    (D_HPF, "1680Hz"), (D_RELEASE, "220dB/s"), (D_LIFT, "50m"), (D_LIFT, "10s"),
+])
+def test_dd_valider_accepte(desc, valeur):
+    assert dd.valider_machine(desc, valeur) is None
+
+
+def test_dd_relecture_et_arrondis():
+    assert dd.relecture_machine(D_DELAI, "1.5ms", "1.5ms/1.69ft/0.51m")
+    assert dd.relecture_machine(D_HPF, "1234Hz", "1.23kHz")
+    assert not dd.relecture_machine(D_HPF, "1120Hz", "1kHz")              # plus de tolérance de ±500 Hz
+    assert not dd.relecture_machine(D_TYPE, "LR 24", "BW 6")
+    assert dd.relecture_machine(D_LIFT, "190s", "3m 10s")
+    # grille interne de la machine
+    assert dd.arrondi_machine(D_RELEASE, "218dB/s", "220dB/s")
+    assert dd.arrondi_machine(None, "-25.7dB", "-25.5dB", "\\\\Preset\\InMixer1\\SV\\Output_1_Input_1_Gain")
+    assert not dd.arrondi_machine(None, "-25.7dB", "-25.5dB", SEUIL)       # jamais sur un seuil
+    assert not dd.arrondi_machine(None, "1.5ms", "1.6ms")                   # jamais sur un temps
+
+
+def test_dd_corrections_q():
+    assert any(m.search("\\\\Preset\\PEQ1\\SV\\Band_3_Q") and c["max"] == "16" for m, c in dd.CORRECTIONS)
+
+
+def test_dd_signal_plafonne():
+    assert dd.est_signal("\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude")
+    assert dd.est_signal("\\\\Preset\\InMixer1\\SV\\SignalGeneratorControl")
+    assert dd.verifier_signal("\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude", "-20dB", None)
+    assert dd.verifier_signal("\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude", "-40dB", None) is None
+    assert dd.verifier_signal("\\\\Preset\\SignalGenerator\\SV\\Signal Generator", "On", "-10dB")
+    assert dd.verifier_signal("\\\\Preset\\SignalGenerator\\SV\\Signal Generator", "On", "-49dB") is None
+
+
+@pytest.mark.parametrize("chemin", [
+    "\\\\Preset\\InputGains\\SV\\Channel_1_Gain", "\\\\Preset\\InMixer2\\SV\\Output_1_Input_1_Gain",
+    "\\\\Preset\\MidRouter5\\SV\\Output_1_MasterGain", "\\\\Preset\\OutputGains\\SV\\Channel_3_Gain",
+    "\\\\Node\\Settings\\SV\\Output1Gain",
+])
+def test_dbx_protection_etendue(chemin):
+    assert dbx_hiqnet.est_protection(chemin)
+
+
+def test_dbx_simulateur_se_decrit_et_refuse(faux_dbx, monkeypatch):
+    # bornes données par la machine (simulée) : -61 dB refusé avant envoi
+    assert lancer_dbx(faux_dbx, "set", SEUIL, "-61.0dB", "--appliquer", "--protection-validee",
+                      "--config", CONFIG, "--voie", "SUB", monkeypatch=monkeypatch) != 0
+    # type de filtre : libellé exact de la liste de la machine
+    assert lancer_dbx(faux_dbx, "set", "\\\\Preset\\CrossoverIIR1\\SV\\Band_1_HPType", "LR24", "--appliquer",
+                      "--protection-validee", monkeypatch=monkeypatch) != 0
+
+
+def test_dbx_generateur_exige_signal_valide(faux_dbx, monkeypatch):
+    amp = "\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude"
+    assert lancer_dbx(faux_dbx, "set", amp, "-50dB", "--appliquer", monkeypatch=monkeypatch) != 0
+    assert lancer_dbx(faux_dbx, "set", amp, "-20dB", "--appliquer", "--signal-valide", monkeypatch=monkeypatch) != 0
+    assert lancer_dbx(faux_dbx, "set", amp, "-50dB", "--appliquer", "--signal-valide", monkeypatch=monkeypatch) == 0
+
+
+def test_dbx_restaurer_et_autotest_simulateur(faux_dbx, monkeypatch, tmp_path):
+    ch = "\\\\Preset\\CrossoverIIR1\\SV\\Band_2_Gain"
+    with dbx_hiqnet.Dbx("127.0.0.1", faux_dbx) as d:
+        avant = dd.instantane_complet(d)
+        d.set(ch, "-6.0dB")
+        r = dd.restaurer(d, avant)
+        assert r["ecarts"] == 1 and not r["echecs"]
+        assert d.get(ch) == avant[ch]
+        rap = dd.autotest(d)
+        assert rap["testes"] > 0 and not rap["echecs"] and not rap["refus_manques"] and not rap["ecarts_finaux"]
+        assert d.get("\\\\Preset\\SignalGenerator\\SV\\Signal Generator") == "Off"     # jamais touché
+        assert all(d.get(m) == avant[m] for m in dd.SORTIES_MUTE)                      # mutes remis
+
+
+def test_dd_post_revue_valeurs():
+    assert not dd.relecture_machine(D_DELAI, "0.4ms", "0ms/0ft/0m")       # délai relu sans décimales : non conforme
+    assert dd.valider_machine(D_SEUIL, "-20dB/s") is not None             # « / » refusé hors dB/s, dB/oct
+    assert dd.valider_machine(D_SEUIL, "-20dBu") is not None              # unité de niveau différente de l'affichage
+    assert not dd.ecrivable("\\\\Node\\Settings\\SV\\Output1Gain", {**D_SEUIL, "valeur": "+22dBu"})
+    assert dbx_hiqnet.est_protection("\\\\Preset\\CrossoverIIR1\\SV\\Band_1_LPFrequency")
+    assert dbx_hiqnet.est_protection("\\\\Preset\\CrossoverIIR1\\SV\\Band_1_LPType")
+
+
+def test_dd_restaurer_delai_compose(faux_dbx):
+    ch = "\\\\Preset\\DelayOut1\\SV\\Amount"
+    with dbx_hiqnet.Dbx("127.0.0.1", faux_dbx) as d:
+        avant = dd.instantane_complet(d)
+        d.set(ch, "1.5ms")
+        r = dd.restaurer(d, avant)                     # cible affichée « 0ms/0ft/0m » : écrite en ms
+        assert r["conforme"] and not r["refuses"] and d.get(ch) == avant[ch]
+
+
+def test_dd_mute_non_confirme_rien_ecrit(faux_dbx):
+    ch = "\\\\Preset\\CrossoverIIR1\\SV\\Band_2_Gain"
+    with dbx_hiqnet.Dbx("127.0.0.1", faux_dbx) as d:
+        avant = dd.instantane_complet(d)
+        set_orig = d.set
+        d.set = lambda c, v: None if c in dd.SORTIES_MUTE else set_orig(c, v)   # mute qui ne prend pas
+        with pytest.raises(dd.SortiesNonMutees):
+            dd.restaurer(d, {**avant, ch: "-6.0dB"})
+        with pytest.raises(dd.SortiesNonMutees):
+            dd.autotest(d)
+        assert d.get(ch) == avant[ch]
+
+
+def test_dd_restaurer_seuil_plus_haut_refuse_et_reste_mute(faux_dbx):
+    seuil = "\\\\Preset\\Limiter1\\SV\\Threshold"
+    with dbx_hiqnet.Dbx("127.0.0.1", faux_dbx) as d:
+        avant = dd.instantane_complet(d)
+        bas = f"{dd.analyser(avant[seuil])[0] - 5:.1f}dB"                  # simulateur partagé : relatif à l'état
+        d.set(seuil, bas)
+        r = dd.restaurer(d, avant)                                          # bas -> avant : seuil relevé
+        assert any(x["chemin"] == seuil for x in r["refuses"])
+        assert d.get(seuil).strip() == bas
+        assert not r["conforme"] and r["sorties"] == "RESTÉES MUTÉES"
+        assert all(d.get(m) == "On" for m in dd.SORTIES_MUTE)
+        r = dd.restaurer(d, avant, seuils_hausse_autorises=True)            # décision explicite
+        assert r["conforme"] and d.get(seuil).strip() == avant[seuil]
+        assert all(d.get(m) == avant[m] for m in dd.SORTIES_MUTE)

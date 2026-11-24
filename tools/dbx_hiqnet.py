@@ -57,13 +57,18 @@ from pathlib import Path
 PORT = 19272
 RACINE = Path(__file__).resolve().parent.parent
 JOURNAL = RACINE / "journal"
-MOTS_PROTECTION = ("limiter", "hptype", "hpfrequency", "mute", "peakstop", "threshold", "polarity", "overshoot", "\\sv\\auto")
+MOTS_PROTECTION = ("limiter", "hptype", "hpfrequency", "lptype", "lpfrequency", "mute", "peakstop", "threshold", "polarity", "overshoot", "\\sv\\auto",
+                   # niveaux et routage (24/11/2026) : un gain d'entrée, de zone ou de sortie, ou un routage, change ce que
+                   # reçoivent les amplis ; le niveau de sortie analogique change le calibrage des seuils de limiteur.
+                   "\\inputgains\\", "\\inmixer", "\\midrouter", "\\outputgains\\", "\\zonegains\\",
+                   "\\node\\settings\\sv\\output", "\\node\\settings\\sv\\input")
 CHEMINS_INTERDITS = ("password", "reboot", "\\node\\config\\sv\\command")
 RPC_LECTURE = {"Get", "GetInputRouterSourceNames", "PresetIsModified", "PresetRecallList"}
 RPC_INTERDITS = {"FactoryRestore", "BuildDB", "CopyPresets", "StorePresetFiles", "WizardChoicesDefault", "Delete", "DeletePreset"}
 CARTE = Path(__file__).resolve().parent.parent / "data" / "venu360_parametres.yaml"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from garde_fous import nombre, refuser_controle, verifier_plafond   # noqa: E402
+import dbx_description as dd   # noqa: E402
 
 # Préfixe d'instance -> section de la carte ; préfixe de paramètre multi-canal retiré avant recherche
 _SECTIONS = (("CrossoverIIR", "crossover", r"^(Band_\d+_|Sub_)"), ("PEQOut", "peq_sortie", r"^Band_\d+_"),
@@ -439,7 +444,11 @@ def main() -> None:
         if hasattr(sys.stderr, "reconfigure"):
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set", "presets", "rappel", "stocker", "rpc"])
+    ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set",
+                                    "presets", "rappel", "stocker", "rpc", "decrire", "restaurer", "autotest", "topologie"])
+    ap.add_argument("--signal-valide", action="store_true",
+                    help="Louis a confirmé niveau sûr et personne exposé : autorise l'écriture du générateur (≤ -30 dB)")
+    ap.add_argument("--blocs", help="autotest : blocs à tester, séparés par des virgules (ex. GEQ1,Afs1,Limiter)")
     ap.add_argument("args", nargs="*")
     ap.add_argument("--mdp", default=None,
                     help="déconseillé (visible dans l'historique) : préférer la variable d'environnement DBX_MDP")
@@ -502,7 +511,92 @@ def main() -> None:
         elif a.cmd == "ls":
             for k, v in d.ls(a.args[1]).items():
                 print(f"{k} : {v}")
-        elif a.cmd in ("arbre", "instantane", "carte"):
+        elif a.cmd == "decrire":
+            desc = dd.decrire_tout(d, progression=lambda b, n: print(f"  {b} : {n} paramètres", file=sys.stderr))
+            # fichier destiné au dépôt : ni adresse IP, ni réglage d'appareil sensible
+            desc = {c: x for c, x in desc.items()
+                    if not re.search(r"password|passwd|mdp|e?mail|address|\bip\b|network|dhcp|subnet|gateway", c, re.I)}
+            out = Path(a.sortie or RACINE / "data" / "venu360_description.json")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({"_meta": {"date": dt.datetime.now().isoformat(timespec="seconds"),
+                                                 "preset": d.get("\\\\Node\\Settings\\SV\\LoadedPresetName")},
+                                       **desc}, ensure_ascii=False, indent=1), encoding="utf-8")
+            n_ecr = sum(dd.ecrivable(c, x) for c, x in desc.items())
+            print(f"Écrit : {out} ({len(desc)} paramètres décrits, dont {n_ecr} réglages écrivables)")
+        elif a.cmd == "topologie":
+            print(json.dumps(dd.topologie(d), ensure_ascii=False, indent=1))
+        elif a.cmd == "instantane":
+            t = dd.instantane_complet(d)
+            if len(t) < 50:                       # firmware ou simulateur qui ne se décrit pas : carte connue
+                t = aplatir(d.carte())
+            t["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds")}
+            out = Path(a.sortie or JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}.json")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(t, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Écrit : {out} ({len(t) - 1} valeurs)")
+        elif a.cmd in ("restaurer", "autotest"):
+            if not a.protection_validee:
+                sys.exit(f"REFUS : {a.cmd} écrit aussi des PROTECTIONS (limiteurs, HPF, mutes). "
+                         "Validation explicite de Louis requise (--protection-validee).")
+            if not a.appliquer:
+                print(f"SIMULATION : {a.cmd} (ajouter --appliquer). Les 6 sorties seront mutées pendant l'opération.")
+                return
+            snap = JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}-avant-{a.cmd}.json"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            etat = dd.instantane_complet(d)
+            etat["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds")}
+            snap.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Instantané complet avant {a.cmd} : {snap}")
+            if a.cmd == "restaurer":
+                if len(a.args) < 2:
+                    sys.exit("restaurer : <ip> <instantane.json> attendus.")
+                brut = json.loads(Path(a.args[1]).read_text(encoding="utf-8"))
+                ip_snap = (brut.get("_meta") or {}).get("ip")
+                if ip_snap and ip_snap != ip:
+                    sys.exit(f"REFUS : instantané pris sur {ip_snap}, pas sur {ip}.")
+                cible = aplatir(brut)
+                try:
+                    r = dd.restaurer(d, cible, journal=journaliser, seuils_hausse_autorises=a.depasser_plafond)
+                except dd.SortiesNonMutees as e:
+                    sys.exit(f"REFUS : {e}. Aucun réglage réécrit ; certaines sorties ont pu rester mutées "
+                             f"(état d'avant : {snap}).")
+                print(f"{r['ecarts']} écart(s) réécrit(s), {len(r['echecs'])} échec(s), {len(r['refuses'])} refus, "
+                      f"{len(r['ecarts_restants'])} écart(s) restant(s) · sorties : {r['sorties']}")
+                for e in r["echecs"]:
+                    print(f"  ÉCHEC {e.get('chemin')} : cible {e.get('cible')}, relu {e.get('relu')} {e.get('erreur') or ''}")
+                for e in r["refuses"]:
+                    print(f"  REFUS {e['chemin']} : {e['cible']} ({e['motif']})")
+                if not r["conforme"]:
+                    sys.exit(1)
+                return
+            filtre = [b.strip() for b in a.blocs.split(",")] if a.blocs else None
+            try:
+                rapport = dd.autotest(d, filtre, journal=journaliser,
+                                      progression=lambda n: n % 100 == 0 and print(f"  {n} paramètres…", file=sys.stderr))
+            except dd.SortiesNonMutees as e:
+                sys.exit(f"REFUS : {e}. Autotest annulé, aucun réglage écrit ; certaines sorties ont pu rester mutées "
+                         f"(état d'avant : {snap}).")
+            out = Path(a.sortie or JOURNAL / f"autotest-{dt.datetime.now():%Y%m%d-%H%M%S}.json")
+            out.write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Paramètres décrits : {rapport['decrits']} · testés : {rapport['testes']} · écriture OK : "
+                  f"{rapport['ecriture_ok']} · restaurés : {rapport['restaures']} · non testés : {len(rapport['non_testes'])}")
+            print(f"Refus attendus vérifiés : {rapport['refus_attendus']} · refus manqués : {len(rapport['refus_manques'])}")
+            print(f"Arrondis par la machine : {sum(1 for l in rapport['lignes'] if l.get('arrondi_machine'))} · "
+                  f"refusés par la machine (option indisponible) : {len(rapport['refus_appareil'])} · "
+                  f"échecs : {len(rapport['echecs'])}")
+            print(f"Restauration finale : {rapport['restauration']['ecarts']} écart(s), "
+                  f"{len(rapport['restauration']['echecs'])} échec(s) · écarts restants : {len(rapport['ecarts_finaux'])}")
+            print(f"Dérives brutes (protections) : {len(rapport['derives_brutes'])} · seuils relevés : "
+                  f"{len(rapport['seuils_releves'])}" + (f" · INTERROMPU : {rapport['erreur_boucle']}" if rapport['erreur_boucle'] else ""))
+            print(f"Sorties : {rapport['sorties']}")
+            print(f"Rapport : {out}")
+            journaliser(f"AUTOTEST fin {ip} : {rapport['ecriture_ok']}/{rapport['testes']} OK, "
+                        f"{len(rapport['ecarts_finaux'])} écart(s) final(aux), sorties {rapport['sorties']} [{out.name}]")
+            if rapport["echecs"] or rapport["refus_manques"] or rapport["ecarts_finaux"] or rapport["seuils_releves"] \
+                    or rapport["erreur_boucle"]:
+                print(f"Pour revenir à l'état d'avant : restaurer {ip} {snap} --appliquer --protection-validee")
+                sys.exit(1)
+        elif a.cmd in ("arbre", "carte"):
             t = d.arbre(a.racine, a.profondeur) if a.cmd == "arbre" else d.carte()
             t["_meta"] = {"ip": ip, "date": dt.datetime.now().isoformat(timespec="seconds")}
             out = Path(a.sortie or JOURNAL / "instantanes" / f"{dt.datetime.now():%Y%m%d-%H%M%S}.json")
@@ -565,10 +659,37 @@ def main() -> None:
                 refuser_controle(chemin, valeur)
             except ValueError as e:
                 sys.exit(f"REFUS : {e}")
-            motif = valider_valeur(chemin, valeur)
-            if motif and not (a.hors_carte and motif.startswith("chemin absent")):
-                sys.exit(f"REFUS : {chemin} = {valeur} : {motif}."
-                         + (" Chemin non cartographié : --hors-carte après vérification par get." if motif.startswith("chemin absent") else ""))
+            # 1) Description donnée par la machine elle-même (bornes, choix, mètre) : elle prime sur la carte YAML.
+            desc = dd.decrire_param(d, chemin)
+            if desc is not None:
+                motif = dd.valider_machine(desc, valeur)
+                if motif:
+                    sys.exit(f"REFUS : {chemin} = {valeur} : {motif}.")
+                # la carte, quand elle connaît le chemin, s'ajoute (la plus stricte des deux l'emporte)
+                if regle_carte(chemin) is not None:
+                    motif = valider_valeur(chemin, valeur)
+                    if motif:
+                        sys.exit(f"REFUS : {chemin} = {valeur} : {motif} (carte data/venu360_parametres.yaml).")
+                # réglage d'appareil hors preset non cartographié : seulement en connaissance de cause
+                if chemin.lower().startswith("\\\\node\\") and not dd.REGLAGES_APPAREIL_TESTABLES.search(chemin) and not a.hors_carte:
+                    sys.exit(f"REFUS : {chemin} est un réglage d'appareil non cartographié : --hors-carte après vérification.")
+            else:
+                # 2) Repli : carte hors ligne (simulateur, firmware qui ne se décrit pas)
+                motif = valider_valeur(chemin, valeur)
+                if motif and not (a.hors_carte and motif.startswith("chemin absent")):
+                    sys.exit(f"REFUS : {chemin} = {valeur} : {motif}."
+                             + (" Chemin non cartographié : --hors-carte après vérification par get." if motif.startswith("chemin absent") else ""))
+            if dd.est_signal(chemin):
+                if not a.signal_valide:
+                    sys.exit("REFUS : générateur de signal. Il faut l'accord explicite de Louis (niveau sûr, personne exposé) : --signal-valide.")
+                ampl = None
+                try:
+                    ampl = d.get("\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude")
+                except ValueError:
+                    pass
+                m_sig = dd.verifier_signal(chemin, valeur, ampl)
+                if m_sig:
+                    sys.exit(f"REFUS : {m_sig}.")
             note_plafond = None
             if re.search(r"\\Limiter\d*\\SV\\Threshold$", chemin, re.I):
                 try:
@@ -589,9 +710,25 @@ def main() -> None:
             r = d.set(chemin, valeur)
             apres = d.get(chemin)
             journaliser(f"SET {ip} {chemin} : {avant} -> {valeur} (relu : {apres}) [{r}]"
-                        + (f" [{note_plafond}]" if note_plafond else "") + (" [HORS CARTE]" if motif else ""))
+                        + (f" [{note_plafond}]" if note_plafond else "") + (" [HORS CARTE]" if motif else "")
+                        + ("" if desc else " [sans description machine]"))
             print(f"  relu : {apres}")
-            if not relecture_conforme(valeur, apres, chemin):
+            conforme = dd.relecture_machine(desc, valeur, apres) if desc else relecture_conforme(valeur, apres, chemin)
+            if note_plafond and nombre(str(apres or "").split("/")[0]) is not None:
+                # la valeur RETENUE par la machine doit elle aussi respecter le plafond (pas seulement la consigne)
+                try:
+                    verifier_plafond(nombre(str(apres)), a.config, a.voie, "dBFS", a.depasser_plafond)
+                except ValueError as e:
+                    d.set(chemin, str(avant).strip())             # retour à l'ancien seuil (sous le plafond)
+                    remis = d.get(chemin)
+                    journaliser(f"ECART PLAFOND {ip} {chemin} : relu {apres} : {e} ; ancien seuil réécrit, relu {remis}")
+                    sys.exit(f"ÉCHEC : seuil retenu par la machine ({apres}) au-dessus du plafond : {e}. "
+                             f"Ancien seuil réécrit (relu {remis}).")
+            if not conforme and desc and dd.arrondi_machine(desc, valeur, apres, chemin):
+                journaliser(f"ARRONDI {ip} {chemin} : demandé {valeur}, la machine a retenu {apres} (sa grille)")
+                print(f"  NB : arrondi par la machine à {apres} (grille interne, écart < {dd.ARRONDI_MAX:.1%}).")
+                conforme = True
+            if not conforme:
                 journaliser(f"ECART {ip} {chemin} : demandé {valeur}, relu {apres}")
                 sys.exit(f"ÉCHEC : la valeur relue ({apres}) ne correspond pas à la demande ({valeur}). "
                          "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage).")

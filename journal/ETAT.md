@@ -4,6 +4,66 @@ Règle : toute valeur validée sur le terrain est notée ici avec la date et la 
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
 
+
+
+## 2026-11-24 (suite) : revue de sécurité appliquée, cycles 4 et 5 sur la machine
+
+Revue `controleur-securite` du pilotage complet ; corrigé :
+- mute des sorties **relu** avant toute écriture en lot (sinon rien n'est écrit) ;
+- sorties rendues seulement si l'état final est conforme, sinon laissées mutées avec la commande `restaurer` à lancer ;
+- `restaurer` valide chaque valeur, refuse un seuil relevé, vérifie l'IP de l'instantané ;
+- contrôle des valeurs brutes (seuils, HPF/LPF, délais) après l'aller-retour ;
+- LPF/LPType en protection ; carte YAML appliquée en plus de la machine ; `\\Node` non cartographié sous `--hors-carte` ;
+- seuil relu comparé au plafond ; « / » et unité de niveau différente refusés ; arrondi des coupures limité à 1 % ;
+- `decrire` n'écrit plus l'IP ni de réglage réseau dans `data/venu360_description.json`.
+
+Cycles :
+- 4 : 966/967 OK, mais l'indicateur `PresetIsModified` comptait comme un écart. Résultat : sorties laissées mutées (le garde-fou a joué). Exclu du contrôle, puis `restaurer` → 0 écart, sorties remises.
+- 5 : **966/967 OK, 0 échec, 4062 refus vérifiés, 0 écart final, 0 dérive brute, sorties remises comme avant.** Les 3 non testés ont une valeur unique (Min = Max).
+- Seconde revue `controleur-securite` : pas de P1. Corrigé : Ctrl-C pendant l'autotest → restauration quand même ;
+  seuil illisible refusé par `restaurer` ; délais composés (« 4ms/4.51ft/1.37m ») restaurables ; seuil relu au-dessus du plafond → ancien seuil réécrit ;
+  démute relu ; toute dérive brute bloque le retour du son ; `\\Node` insensible à la casse.
+- 6 : **966/967 OK, 0 échec, 0 écart, 0 dérive, sorties remises.** 127 tests sans matériel.
+
+**Reste :**
+- `set` : rien ne vérifie que l'instance du limiteur (Limiter3…) correspond à `--voie` ;
+- contrôles « chemin seul » (protection, signal) faits après les premières trames de lecture, pas avant la connexion ;
+- pas maximum par écriture (±3 dB, ±0,5 ms) non vérifié par `dbx_hiqnet.py set` ;
+- topologie (reconfiguration), AutoEQ/RTA avec micro, générateur sur « go » ;
+- réseau du VENU360 non isolé et mot de passe d'usine : à changer ;
+- le preset 27 contient une copie de QuiDri.
+
+## 2026-11-24 : le kit pilote tout le VENU360 (auto-description, autotest, restauration)
+
+**Découverte :** le VENU360 se décrit lui-même (bornes, type, mètre, liste des choix). Nouveau module `tools/dbx_description.py` :
+- validation avant envoi d'après la machine (choix exacts, unité de la même famille, plage, mètres refusés) ;
+- relecture au demi-pas d'affichage ; arrondis de la machine reconnus et journalisés ;
+- table des bornes déclarées fausses (`CORRECTIONS`).
+Nouvelles commandes `decrire`, `topologie`, `instantane` complet, `restaurer`, `autotest`.
+Protections étendues (gains d'entrée, de zone et de sortie, routage, niveaux d'appareil). Générateur sous `--signal-valide`, plafonné à −30 dB.
+
+**Machine (preset 31 « QuiDri Gab1 Beta Caisson ») :** 60 blocs, 1126 paramètres, 985 réglages écrivables.
+Topologie : Mono 3-Way + Mono Sub (sorties 1-4 : High, Mid, Low, Sub) | Mono 2-Way (sorties 5-6 : High, Low).
+Description enregistrée dans `data/venu360_description.json`.
+
+**Cycles de test sur la machine (sorties mutées, aucun son) :**
+1. 898/930 OK. Trouvés :
+   - restauration qui comparait à des valeurs périmées : 6 filtres AFS effacés, puis récupérés par `restaurer` ;
+   - pas des fréquences mal compris (« 1kHz » pris pour ±500 Hz) ;
+   - Q borné à 16 malgré la déclaration de 128 ;
+   - unité de l'AFS (ms mal lu) ;
+   - grille des faders.
+2. 956/976 OK. Trouvés : loi de fader en bas de course, format « 3m 10s ».
+3. **975/976 OK, 0 échec, 0 écart final.** 59 arrondis machine, 4089 valeurs piégées toutes refusées. La seule option refusée l'est par la machine elle-même (routage RTA « A »).
+- Stockage testé : `stocker 27`, puis `rappel 27`, puis `diff`. État identique, sauf les mutes de zone 3 et 4 (remis à On par le rappel), réécrits ensuite.
+  **Le preset 27 contient désormais une copie de « QuiDri Gab1 Beta Caisson »** (la case était « Empty »).
+- 123 tests sans matériel (simulateur qui se décrit et borne comme la machine).
+
+**Reste à faire :**
+- reconfiguration directe de la topologie : apprendre le format avec l'appli officielle ;
+- AutoEQ et RTA : utilisation réelle avec un micro ;
+- générateur : essai avec signal, sur « go » de Louis.
+
 ## 2026-11-23 (suite 7) : premier test d'écriture complet sur le vrai VENU360 (10.104.31.113)
 
 Appareil : VENU360 « CKIDriveRack », firmware 2.0.5.0, 96 kHz, mot de passe d'usine. Réseau partagé avec le Wi-Fi Internet (à isoler).
