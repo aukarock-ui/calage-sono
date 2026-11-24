@@ -1,0 +1,74 @@
+# Configuration CKI — pile mono 4 voies en colonne (un seul bloc), sans super-aigus. Décrite par Louis le 24/11/2026.
+# Mêmes caisses que ma-sono-actuel ; amplis différents. Pile (photo du 24/11/2026), du bas vers le haut :
+# Sorties VENU360 (câblage des presets 4VM) : 1 HIGH, 2 MEDIUM, 3 KICK, 4 SUB, 5-6 libres.
+# 2 SUB couchés, 4 KICK debout, 2 MEDIUM couchés, 2 HIGH (HP640). Super-aigus retirés. Les champs null sont à renseigner.
+
+nom: ma-sono-cki
+proprietaire: Louis
+type_systeme: composants
+processeur: DBX_VENU360
+processeur_reglage_sortie: "+22"
+processeur_reglage_sortie_confirme: true   # relu sur la machine le 23/11/2026 (Output1..6Gain = +22 dBu)
+processeur_overshoot_db: 6                 # PeakStopPlus OVERSHOOT, valeur par défaut relue sur la machine
+processeur_unite_seuil: dBFS
+preferences: "Réglages processeur fixes (set and forget), ajustements par style à la console ; voicing bass-heavy assumé ; préserver le grain du CP650Ti ; CP650Ti limités à 75 %."
+pourcentage_puissance_limite: 0.75
+temperature_c: 20
+
+voies:
+  - nom: SUB
+    type: composants
+    sortie: 4
+    hp: RCF_LF21X451
+    hp_en_serie: 1
+    branches_paralleles: 2        # 2 caisses 1×21" 8 Ω en parallèle -> 4 Ω
+    ampli: QSC_PL380
+    mode: bridge
+    gain_canal_db: 32             # sélecteur arrière PL380 sur 32 dB (Louis, 24/11/2026)
+    charge: "bass-reflex couché, 1×21\""
+    accord_event_hz: null
+  - nom: KICK
+    type: composants
+    sortie: 3
+    hp: BEYMA_SM118_GEN1
+    hp_en_serie: 2
+    branches_paralleles: 4        # 4 caisses 2×18" série (16 Ω) en parallèle -> 4 Ω
+    ampli: QSC_PLX3402            # absent de materiel.yaml : fiche QSC à fournir
+    mode: bridge
+    gain_canal_db: 32             # gain fixe constructeur (40×)
+    charge: "bass-reflex debout, 2×18\" en série (16 Ω/caisse)"
+    accord_event_hz: null
+  - nom: MEDIUM
+    type: composants
+    sortie: 2
+    hp: BEYMA_SM115_GEN1
+    hp_en_serie: 2
+    branches_paralleles: 2        # 2 caisses 2×15" série (16 Ω) en parallèle -> 8 Ω
+    ampli: QSC_PLX3002
+    mode: bridge
+    gain_canal_db: 32             # gain fixe constructeur (40×)
+    charge: "clos, 2×15\" en série (16 Ω/caisse)"
+  - nom: HIGH
+    type: composants
+    sortie: 1
+    hp: BEYMA_CP650TI
+    hp_en_serie: 1
+    branches_paralleles: 1        # RMX1450 en parallèle : 1 CP650Ti 8 Ω par canal, même signal
+    ampli: QSC_RMX1450
+    mode: parallele
+    gain_canal_db: 32             # gain fixe constructeur (40×)
+    charge: "CP650Ti sur EV HP640"
+
+# Point de départ : coupures validées sur ma-sono-actuel (oct. 2026), sans SUPER -> HIGH sans passe-bas. À re-valider par mesure.
+crossover:
+  SUB:    {hpf: "LR24 35 Hz", lpf: "LR24 90 Hz"}   # HPF provisoire (presets 4VM de Louis) : accord à mesurer (impédance)
+  KICK:   {hpf: "LR24 90 Hz", lpf: "LR24 400 Hz"}
+  MEDIUM: {hpf: "LR24 400 Hz", lpf: "LR24 1600 Hz"}
+  HIGH:   {hpf: "LR24 1600 Hz", lpf: null}
+  note: "HPF SUB obligatoire (bass-reflex) : accord non mesuré -> à fixer d'après excursion_br / mesure."
+
+caisses:
+  SUB:    {l: 135, p: 71, h: 63, note: "couché"}
+  KICK:   {l: 69,  p: 51, h: 121}
+  MEDIUM: {l: 121, p: 71, h: 51, note: "couché (photo Louis 24/11/2026)"}
+  HIGH:   {l: 82,  p: 58, h: 48}

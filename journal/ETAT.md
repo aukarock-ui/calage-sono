@@ -6,6 +6,52 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
 
 
 
+
+
+## 2026-11-24 : preset « CKI 4 voies mono » écrit dans le VENU360 (case 27), test de Claude
+
+Système `data/configs/ma-sono-cki.yaml` (photo `data/configs/photos/ma-sono-cki-pile.jpg`). Pile en colonne, sans super-aigus :
+- 2 SUB RCF LF21X451 sur PL380 bridge 4 Ω, gain 32 dB ;
+- 4 KICK 2×SM118 sur PLX3402 bridge 4 Ω ;
+- 2 MEDIUM 2×SM115 sur PLX3002 bridge 8 Ω ;
+- 2 HIGH CP650Ti/HP640 sur RMX1450 en parallèle (8 Ω par canal).
+Fiches constructeur ajoutées (`docs/references/`, hors git) ; PLX3402 ajouté à `materiel.yaml`.
+
+**Preset :** base = preset 29 (6 sorties mono indépendantes). Sorties : 1 HIGH, 2 MEDIUM, 3 KICK, 4 SUB ; 5-6 mutées et inutilisées. 60/60 écritures relues.
+
+| Sortie | HPF | LPF | Limiteur (calc_systeme) | Détection |
+|---|---|---|---|---|
+| 1 HIGH | 1,6 kHz LR 24 | Out | −31,1 dB | crête, overshoot 6 dB |
+| 2 MEDIUM | 400 Hz LR 24 | 1,6 kHz LR 24 | −26,1 dB | RMS |
+| 3 KICK | 90 Hz LR 24 | 400 Hz LR 24 | −26,1 dB | RMS |
+| 4 SUB | 35 Hz LR 24 (provisoire) | 90 Hz LR 24 | −23,1 dB | RMS |
+
+Réglages communs :
+- délais Off à 0, PEQ de sortie Off, gains 0 dB, OverEasy Off ;
+- attaque/relâchement laissés sur Auto (valeurs du preset 29) ;
+- tout le traitement d'entrée est Off (AFS, GEQ, PEQ, compresseur, AutoEQ, sous-harmoniques).
+
+**Contrôles :** `stocker 27`, puis `rappel 27`, puis `diff` → identique, sauf l'indicateur PresetIsModified. Le preset est stocké avec les 6 sorties **mutées** (à démuter après vérification).
+
+**Limites / à reprendre :**
+- nom de la case 27 = « Total Flat 4VM Li 35 70 160 800 a faire » : le Store garde le nom chargé, et le renommage n'est pas encore connu (à apprendre via l'appli) ;
+- HPF SUB 35 Hz provisoire : accord des évents à mesurer (impédance REW) ;
+- gains en bridge (+6 dB) à confirmer au voltmètre ; puissances Beyma non AES ;
+- délais entre voies à 0 : alignement à faire à la mesure (IR, puis phase) ;
+- attaque/relâchement : appliquer « sub lent, grave moyen, aigu rapide » une fois les temps sourcés.
+
+## 2026-11-24 : VENU360 passé en « deux têtes 3 voies » (stéréo)
+
+- Rappel du modèle d'usine 86 « Stereo 3Way Mains », puis les 6 sorties ont été mutées et relues « On ». Stocké en case **27** (qui contenait la copie de test du 31 ; l'original QuiDri reste en 31).
+- Sorties : 1 Left High, 2 Right High, 3 Left Mid, 4 Right Mid, 5 Left Low, 6 Right Low. Liaison stéréo : instances impaires seulement (Limiter1 = aigus G+D, Limiter3 = médiums, Limiter5 = graves ; idem PEQOut et DelayOut).
+- Valeurs d'usine du modèle :
+  - Low : HPF 50 Hz BW 18, LPF 500 Hz LR 48 ;
+  - Mid : 500 Hz-2,5 kHz LR 48 ;
+  - High : HPF 2,5 kHz LR 48 ;
+  - limiteurs Off à 0 dB, délais Off, gains 0 dB ;
+  - entrées : AFS, GEQ, sous-harmonique, AutoEQ et compresseur.
+- **Rien n'est calé** : aucune config système pour ces têtes. Sorties laissées MUTÉES. Il faut une config (`nouveau-systeme`) pour régler coupures et limiteurs.
+
 ## 2026-11-24 (suite) : revue de sécurité appliquée, cycles 4 et 5 sur la machine
 
 Revue `controleur-securite` du pilotage complet ; corrigé :
@@ -30,7 +76,7 @@ Cycles :
 - contrôles « chemin seul » (protection, signal) faits après les premières trames de lecture, pas avant la connexion ;
 - pas maximum par écriture (±3 dB, ±0,5 ms) non vérifié par `dbx_hiqnet.py set` ;
 - topologie (reconfiguration), AutoEQ/RTA avec micro, générateur sur « go » ;
-- réseau du VENU360 non isolé et mot de passe d'usine : à changer ;
+- réseau du VENU360 non isolé et aucun mot de passe sur la machine (confirmé par Louis) : n'importe quel appareil du Wi-Fi peut la piloter ;
 - le preset 27 contient une copie de QuiDri.
 
 ## 2026-11-24 : le kit pilote tout le VENU360 (auto-description, autotest, restauration)
@@ -66,7 +112,7 @@ Description enregistrée dans `data/venu360_description.json`.
 
 ## 2026-11-23 (suite 7) : premier test d'écriture complet sur le vrai VENU360 (10.104.31.113)
 
-Appareil : VENU360 « CKIDriveRack », firmware 2.0.5.0, 96 kHz, mot de passe d'usine. Réseau partagé avec le Wi-Fi Internet (à isoler).
+Appareil : VENU360 « CKIDriveRack », firmware 2.0.5.0, 96 kHz, aucun mot de passe réglé (Louis, 24/11). Réseau partagé avec le Wi-Fi Internet (à isoler).
 Preset chargé : n° 31 « QuiDri Gab1 Beta Caisson » (modifié). Sorties analogiques **+22 dBu sur les 6 sorties, confirmé par lecture**.
 Instantanés : `journal/instantanes/carte-test-avant.json` et `carte-test-apres.json` (identiques en fin de test).
 

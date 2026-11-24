@@ -22,6 +22,7 @@ haut_parleurs:
     xmax_mm: 13.5
     excursion_dommage_cc_mm: 54
     note: "Vas = 385 L (fiche RCF) — la valeur 355 L notée auparavant était fausse."
+    source_fiche: "RCF, fiche LF21X451 (PDF fourni par Louis le 24/11/2026, docs/references/RCF_LF21X451.pdf)"
 
   BEYMA_SM118_GEN1:
     type: woofer 18" (1re génération)
@@ -35,6 +36,7 @@ haut_parleurs:
     ts: {fs_hz: 30, qts: 0.42, qes: 0.44, qms: 9.98, vas_l: 430, sd_m2: 0.1146, mms_g: 120}
     xmax_mm: 5.5
     a_verifier: ["norme de la puissance 250 W (RMS brochure, pas AES)", "T/S réels des exemplaires 1re gén. (vieillissement)"]
+    source_fiche: "Beyma, brochure SM Series : Power capacity (RMS) 250 W, norme non précisée (PDF fourni par Louis le 24/11/2026, docs/references/Beyma_SM118_SM115.pdf)"
 
   BEYMA_SM115_GEN1:
     type: woofer 15" (1re génération)
@@ -47,6 +49,7 @@ haut_parleurs:
     ts: {fs_hz: 42, qts: 0.40, qes: 0.42, qms: 11.3, vas_l: 185, sd_m2: 0.088, mms_g: 80}
     xmax_mm: 5.5
     a_verifier: ["norme de la puissance 250 W", "T/S réels des exemplaires"]
+    source_fiche: "Beyma, brochure SM Series (PDF fourni par Louis le 24/11/2026, docs/references/Beyma_SM118_SM115.pdf)"
 
   BEYMA_CP650TI:
     type: moteur à compression 2" (gorge 49 mm), diaphragme titane
@@ -59,6 +62,8 @@ haut_parleurs:
     coupure_min_recommandee_hz: 800
     decision_louis: "limité à 75 % de la puissance nominale"
     a_verifier: ["sensibilité réelle sur EV HP640 (mesure)"]
+    source_fiche: "Beyma, fiche CP650/Ti : 80 W = RMS max. sinus 2 h au-dessus de 1 kHz ; crossover recommandé 800 Hz ou plus (PDF fourni par Louis le 24/11/2026, docs/references/Beyma_CP650Ti.pdf)"
+    pavillon_hp640: "EV HP640 : gorge 4,9 cm, 60°×40°, coupure la plus basse recommandée 500 Hz (fiche EV, docs/references/EV_HP640.pdf)"
 
   BEYMA_CP22:
     type: tweeter à compression, bobine 1,5"
@@ -93,12 +98,22 @@ amplis:
     stereo_w: {8: 1500, 4: 2500, 2: 4000}
     bridge_w: {8: 5000, 4: 8000}   # valeurs burst constructeur
     filtre_lf: [30, 50, "off"]
+    gains_note: "sélecteur arrière 26 dB / 32 dB / 1.2V (= 39,1 dB sur PL380) ; entrée max +29 dBu à 32 dB, +22 dBu à 1.2V"
+    source_fiche: "QSC, manuel PL3 Series, page Specifications (PDF fourni par Louis le 24/11/2026, docs/references/QSC_PL3_series_manual.pdf)"
   QSC_PLX3002:
     classe: H (2 paliers)
     gain_db: 32                    # 40x
     entree_max_dbu: 22
     stereo_w: {8: 550, 4: 900, 2: 1500}
     bridge_w: {8: 2000, 4: 3000}
+  QSC_PLX3402:
+    classe: H (2 paliers)
+    gain_db: 32                    # 40x, tous modèles PLX
+    entree_max_dbu: 22             # Input Clipping 10 Vrms (+22 dB)
+    sensibilite_vrms: {8: 1.9, 4: 1.7}
+    stereo_w: {8: 700, 4: 1100, 2: 1700}
+    bridge_w: {16: 1400, 8: 2200, 4: 3400}   # 4 Ω : 1 kHz 1 % THD ; 8/16 Ω : 20 Hz-20 kHz 0,1 % THD
+    source: "QSC, fiche « PLX Series Professional Power Amplifiers », tableau PLX Specifications (PDF fourni par Louis le 24/11/2026)"
   QSC_RMX2450:
     classe: H
     gain_db: 34                    # 50x
@@ -109,6 +124,9 @@ amplis:
     classe: AB
     gain_db: 32                    # 40x
     stereo_w: {8: 280, 4: 450}
+    bridge_w: {8: 800, 4: 1400}
+    mode_parallele: "interrupteurs DIP 4 et 5 sur ON : même signal sur les 2 canaux, gains et limiteurs séparés"
+    source_fiche: "QSC, manuel RMX, p. 27 : 8 Ω 280 W / 4 Ω 450 W EIA, gain 40× (32 dB) (PDF fourni par Louis le 24/11/2026, docs/references/QSC_RMX_manual.pdf)"
   IMG_STA400D:
     a_verifier: ["toutes les specs — fiche dans le projet MA Sono, non encore saisie"]
 
