@@ -8,6 +8,29 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
 
 
 
+
+## 2026-11-24 (suite) : méthodes sourcées et réglages calculés pour la CKI
+
+- **Renommage** : `Store [n, nom]` renomme la case → `dbx_hiqnet.py stocker … --nom`. Case 27 = « CKI 4V Mono ».
+- **HPF SUB** : `excursion_br.py` (Small 1973, critère Marshall 2016) à 109,5 V (tension du limiteur). LR24 35 Hz garde Xmax pour fb 28-40 Hz et Vb 400-550 L (tension qui amène à Xmax : 112-132 V). Retenu. Accord réel à mesurer (impédance REW).
+- **Limiteurs** : table Proel DSO26 (attaque selon le HPF, relâchement 16×) via `tools/reglages_pile.py`.
+  - Valeurs écrites (attaque / relâchement) : SUB 16 ms / 34 dB/s ; KICK 8 ms / 68 dB/s ; MEDIUM 2 ms / 270 dB/s ; HIGH 0,5 ms / 360 dB/s (borné). Auto Off, Hold 0.
+  - QSC (Neunaber 2004) : thermique en secondes. Impossible avec le limiteur unique du VENU360, d'où le seuil réduit à 75 % et la détection RMS sur le grave.
+  - Conversion ms → dB/s = 8,686/τ : hypothèse à vérifier.
+- **Bridge** : manuels QSC PL3 (« twice the normal voltage swing ») et RMX (« double the output voltage ») = +6,02 dB. Boyce p. 98 le confirme. À mesurer au voltmètre.
+- **Délais** : `reglages_pile.py`. Géométrie de la pile (centres acoustiques supposés : HP640 43,7 cm + moteur) et phase des filtres LR au raccord.
+  - Résultat : HIGH 0, MEDIUM 1,23, KICK 1,71 (grille), SUB 4,60 ms.
+  - Le raccord SUB/KICK doit 3 ms à la phase des filtres, et seulement 1,4 ms à la géométrie.
+  - **À comparer à l'IR** : noter l'écart dans `reglages_calcules.mesure` de la config.
+- Outil : arrondi machine accepté sur les délais à ±1 échantillon (96 kHz).
+- **Équilibre des gains** (`reglages_pile.py`, à niveau processeur égal) :
+  - calcul : sensibilité fiche + puissance par HP + somme cohérente sous 1 kHz (incohérente au-dessus) ;
+  - SPL 1 m : SUB 129,8, KICK 135,8, MEDIUM 131,8, HIGH 133,8 dB ;
+  - gains de sortie écrits : HIGH −4, MEDIUM −2, KICK −6, SUB 0 dB.
+  - Non modélisé : charge des caisses, sol, HP640 (sensibilité du CP650Ti sur TD-460). Voicing bass-heavy non appliqué.
+- Case 27 « CKI 4V Mono » : rappel + diff = identique ; nom relu par `stocker --nom`. Stockée sorties mutées.
+- Revue contrôleur (--nom, arrondi des délais) : rien de bloquant. Nom validé avant connexion, nom relu et journalisé après Store.
+
 ## 2026-11-24 : preset « CKI 4 voies mono » écrit dans le VENU360 (case 27), test de Claude
 
 Système `data/configs/ma-sono-cki.yaml` (photo `data/configs/photos/ma-sono-cki-pile.jpg`). Pile en colonne, sans super-aigus :

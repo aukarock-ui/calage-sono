@@ -227,17 +227,22 @@ ETATS_APPAREIL = {"\\\\Node\\Settings\\SV\\PresetIsModified"}
 
 FADERS = re.compile(r"\\(InMixer|MidRouter)\d+\\SV\\.*Gain$")   # loi de fader : grille de 0,1 à 0,5 dB
 ARRONDI_FADER_DB = 0.25
+DELAIS = re.compile(r"\\Delay(Out|Mid)\d+\\SV\\Amount$")
+ECHANTILLON_MS = 1000 / 96000          # VENU360 à 96 kHz (`info`)
 
 
 def arrondi_machine(desc: dict | None, demande: str, relu: str | None, chemin: str = "") -> bool:
     """True si l'écart relu/demandé n'est que la grille interne de la machine (ex. Release 218 -> 220 dB/s,
-    gain de mixeur -25.7 -> -25.5 dB). Jamais pour un choix, un temps (délai, attaque) ou un autre niveau en dB
+    gain de mixeur -25.7 -> -25.5 dB, délai à 1 échantillon près). Jamais pour un choix, un autre temps (attaque, hold…) ou un autre niveau en dB
     (seuils, gains de sortie) : ceux-là restent au demi-pas d'affichage."""
     if relu is None or (desc and desc.get("choix")):
         return False
     a, b = analyser(demande), analyser(relu)
     if a is None or b is None or a[1] != b[1]:
         return False
+    if a[1] == "temps":
+        # délais : réglés au nombre entier d'échantillons (96 kHz -> 0,0104 ms ; constaté 1.7 ms -> 1.71 ms, 24/11/2026)
+        return bool(DELAIS.search(chemin)) and abs(a[0] - b[0]) <= ECHANTILLON_MS + 1e-9
     if a[1] == "niveau":
         # loi de fader : plus grossière tout en bas de course (-113.7 -> -114.0 dB), sans enjeu sous -60 dB
         tol = ARRONDI_FADER_DB if min(a[0], b[0]) > -60 else 1.0

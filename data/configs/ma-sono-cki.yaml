@@ -61,7 +61,7 @@ voies:
 
 # Point de départ : coupures validées sur ma-sono-actuel (oct. 2026), sans SUPER -> HIGH sans passe-bas. À re-valider par mesure.
 crossover:
-  SUB:    {hpf: "LR24 35 Hz", lpf: "LR24 90 Hz"}   # HPF provisoire (presets 4VM de Louis) : accord à mesurer (impédance)
+  SUB:    {hpf: "LR24 35 Hz", lpf: "LR24 90 Hz"}   # HPF validé par excursion_br : Xmax tenu pour fb 28-40 Hz et Vb 400-550 L ; accord à mesurer
   KICK:   {hpf: "LR24 90 Hz", lpf: "LR24 400 Hz"}
   MEDIUM: {hpf: "LR24 400 Hz", lpf: "LR24 1600 Hz"}
   HIGH:   {hpf: "LR24 1600 Hz", lpf: null}
@@ -72,3 +72,35 @@ caisses:
   KICK:   {l: 69,  p: 51, h: 121}
   MEDIUM: {l: 121, p: 71, h: 51, note: "couché (photo Louis 24/11/2026)"}
   HIGH:   {l: 82,  p: 58, h: 48}
+
+# Géométrie de la pile pour le calcul des délais (tools/reglages_pile.py).
+# profondeur_cm = centre acoustique derrière la face avant de la pile ; hauteur_cm = hauteur de ce centre au-dessus du sol.
+# Toutes les PROFONDEURS sont des HYPOTHÈSES tant que l'IR ne les a pas confirmées :
+#   HIGH : HP640 43,7 cm de long (fiche EV) + ~4 cm de trajet dans le moteur (supposé) + ~2 cm de retrait (photo) ;
+#   MEDIUM/KICK/SUB : centre acoustique supposé vers la bobine (cône de 15/18/21" + retrait de la grille, photo).
+# Hauteurs : palette ~14 cm (photo) + empilement des caisses (champ caisses) ; HP au milieu de leur caisse.
+geometrie_pile:
+  SUB:    {profondeur_cm: 21, hauteur_cm: 45}
+  KICK:   {profondeur_cm: 15, hauteur_cm: 138}
+  MEDIUM: {profondeur_cm: 12, hauteur_cm: 224}
+  HIGH:   {profondeur_cm: 50, hauteur_cm: 273}
+
+# Réglages calculés (tools/reglages_pile.py, 24/11/2026) et écrits dans le VENU360 case 27 « CKI 4V Mono ».
+# À comparer à la mesure : noter ici l'écart mesuré pour corriger le modèle (centres acoustiques, phase des HP).
+reglages_calcules:
+  limiteurs:   # Proel DSO26 p. 34 (attaque selon HPF, relâchement 16x) ; conversion dB/s = 8,686/τ (hypothèse)
+    HIGH:   {attaque_ms: 0.5, relachement_db_s: 360, note: "1086 dB/s calculés, borné au max du VENU360"}
+    MEDIUM: {attaque_ms: 2,   relachement_db_s: 271}
+    KICK:   {attaque_ms: 8,   relachement_db_s: 68}
+    SUB:    {attaque_ms: 16,  relachement_db_s: 34}
+  delais_ms:   # point d'écoute 20 m / 1,7 m ; quasi identique à 8 m
+    HIGH: 0
+    MEDIUM: 1.23
+    KICK: 1.70
+    SUB: 4.60
+  gains_sortie_db:   # équilibre à niveau processeur égal (sensibilités fiche, bridge +6 dB, somme cohérente < 1 kHz)
+    HIGH: -4.0      # incertain : sensibilité CP650Ti donnée sur TD-460, pas HP640
+    MEDIUM: -2.0
+    KICK: -6.0
+    SUB: 0.0        # voicing bass-heavy de Louis non appliqué : à décider à la mesure / à la console
+  mesure: {date: null, ecarts: null}

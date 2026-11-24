@@ -122,7 +122,9 @@ Système mixte (ex. têtes constructeur + subs DIY) : chaque voie porte son prop
    sur les retours ou la façade, et non au calage. Au-delà de six filtres sur une même voie, chercher d'abord une cause
    physique (placement, alignement, polarité) (McCarthy p. 23-24).
 8. **Limiteurs** — « composants » : seuils = sortie de `calc_systeme.py`. RMS (thermique) sur le grave, crête sur les
-   moteurs à compression. Attaque/relâchement : sub lent, grave moyen, aigu très rapide. « constructeur » : jamais
+   moteurs à compression. Attaque/relâchement : sub lent, grave moyen, aigu très rapide — valeurs de départ par
+   `tools/reglages_pile.py` (table Proel DSO26 : attaque selon le HPF, relâchement 16×). Thermique : QSC (Neunaber 2004)
+   travaille en secondes ; un limiteur unique de processeur ne le peut pas -> seuil réduit (75 %) + détection RMS. « constructeur » : jamais
    modifiés ; vérifier seulement que le preset correspond à l'élément et à l'ampli.
    Savoir ce que fait le limiteur du processeur : un limiteur CRÊTE seul (ex. DCX2496, « pour les crêtes, pas pour un
    usage continu ») ne protège pas thermiquement → la protection thermique repose alors sur le gain et le limiteur de

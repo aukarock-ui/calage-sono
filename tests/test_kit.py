@@ -601,6 +601,9 @@ def test_dd_relecture_et_arrondis():
     assert dd.arrondi_machine(None, "-25.7dB", "-25.5dB", "\\\\Preset\\InMixer1\\SV\\Output_1_Input_1_Gain")
     assert not dd.arrondi_machine(None, "-25.7dB", "-25.5dB", SEUIL)       # jamais sur un seuil
     assert not dd.arrondi_machine(None, "1.5ms", "1.6ms")                   # jamais sur un temps
+    assert dd.arrondi_machine(None, "1.7ms", "1.71ms/1.93ft/0.59m", "\\\\Preset\\DelayOut3\\SV\\Amount")  # 1 échantillon
+    assert not dd.arrondi_machine(None, "1.7ms", "1.73ms", "\\\\Preset\\DelayOut3\\SV\\Amount")      # > 1 échantillon
+    assert not dd.arrondi_machine(None, "10ms", "10.01ms", "\\\\Preset\\Limiter1\\SV\\Attack")       # pas une attaque
 
 
 def test_dd_corrections_q():
@@ -700,3 +703,46 @@ def test_dd_restaurer_seuil_plus_haut_refuse_et_reste_mute(faux_dbx):
         r = dd.restaurer(d, avant, seuils_hausse_autorises=True)            # décision explicite
         assert r["conforme"] and d.get(seuil).strip() == avant[seuil]
         assert all(d.get(m) == avant[m] for m in dd.SORTIES_MUTE)
+
+
+# --- reglages_pile : temps de limiteur (Proel) et délais de pile ---
+import reglages_pile  # noqa: E402
+
+
+@pytest.mark.parametrize("hpf,att,rel_db_s", [(35, 16.0, 34), (90, 8.0, 68), (400, 2.0, 271), (1600, 0.5, 360), (None, 45.0, 12)])
+def test_temps_limiteur_proel(hpf, att, rel_db_s):
+    r = reglages_pile.temps_limiteur(hpf)
+    assert r["attaque_ms"] == att and r["relachement_ms"] == att * 16
+    assert r["relachement_appareil_db_s"] == rel_db_s
+
+
+def test_delais_pile_coincidente_et_decalee():
+    base = {"temperature_c": 20, "voies": [{"nom": "BAS"}, {"nom": "HAUT"}],
+            "crossover": {"BAS": {"lpf": "LR24 1000 Hz"}, "HAUT": {"hpf": "LR24 1000 Hz"}},
+            "geometrie_pile": {"BAS": {"profondeur_cm": 0, "hauteur_cm": 170}, "HAUT": {"profondeur_cm": 0, "hauteur_cm": 170}}}
+    r = reglages_pile.delais(base, 10, 1.7)
+    assert abs(r["voies"]["BAS"]["delai_ms"]) < 1e-6 and abs(r["voies"]["HAUT"]["delai_ms"]) < 1e-6   # LR en phase
+    base["geometrie_pile"]["HAUT"]["profondeur_cm"] = 34.34          # aigu 1 ms plus loin -> retarder le bas de 1 ms
+    r = reglages_pile.delais(base, 10, 1.7)
+    assert abs(r["voies"]["BAS"]["delai_ms"] - 1.0) < 0.02 and r["voies"]["HAUT"]["delai_ms"] == 0
+    assert r["paires"][0]["somme_db"] > -0.1
+
+
+
+def test_dbx_stocker_nom_refuse_avant_connexion(monkeypatch, tmp_path):
+    monkeypatch.setattr(dbx_hiqnet, "JOURNAL", tmp_path)
+    for args in (["stocker", "27", "--nom", "Caisson élevé"], ["stocker", "27", "--nom", 'a"b'], ["rappel", "27", "--nom", "X"]):
+        monkeypatch.setattr(sys, "argv", ["dbx_hiqnet.py", args[0], "127.0.0.1", *args[1:], "--port", "9", "--appliquer",
+                                          "--protection-validee"])
+        with pytest.raises(SystemExit) as e:
+            dbx_hiqnet.main()
+        assert "REFUS" in str(e.value)
+
+
+
+def test_equilibre_gains_cki():
+    import calc_systeme
+    mat, cfg = calc_systeme.charger(str(Path(__file__).resolve().parent.parent / "data" / "configs" / "ma-sono-cki.yaml"))
+    eq = reglages_pile.equilibre_gains(cfg, mat)
+    assert {k: v["gain_propose_db"] for k, v in eq.items()} == {"SUB": 0.0, "KICK": -6.0, "MEDIUM": -2.0, "HIGH": -4.0}
+    assert all(v["gain_propose_db"] <= 0 for v in eq.values())            # jamais de gain positif

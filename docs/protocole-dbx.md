@@ -120,3 +120,5 @@ Points importants tirés du code :
   reviennent à On au rappel : ils ne sont pas mémorisés comme réglés au moment du stockage.
 - Topologie : `\\Node\Config\SV\Config` (JSON aux guillemets remplacés par des accents graves, clé `.builderConfig.Columns`),
   choix de l'assistant dans `\\Node\SetupWizardCurrentChoices\SV`. Commande `Reconfig` (`\\Node\Config\SV\Command`) non testée, interdite.
+- Renommer en stockant : `{"method":"Store","params":["27","CKI 4V Mono"]}` → la case 27 prend ce nom (constaté le 24/11/2026).
+- Délais : grille d'un échantillon à 96 kHz (1.7 ms → 1.71 ms).

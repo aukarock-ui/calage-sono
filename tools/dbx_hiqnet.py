@@ -36,7 +36,7 @@ Usage :
   python tools/dbx_hiqnet.py set      <ip> "<chemin>" "<valeur>" [--appliquer] [--protection-validee]
   python tools/dbx_hiqnet.py presets  <ip>
   python tools/dbx_hiqnet.py rappel   <ip> <n> [--appliquer --protection-validee]  # Load : instantané complet avant
-  python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer]                 # JSON-RPC Store : instantané complet avant
+  python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer] [--nom N]               # JSON-RPC Store : instantané complet avant
   python tools/dbx_hiqnet.py rpc      <ip> <Methode> [params...]             # méthodes de LECTURE seulement (liste blanche)
 Carte complète des paramètres VENU360 : data/venu360_parametres.yaml (issue de l'appli v2.0.7).
 """
@@ -448,6 +448,7 @@ def main() -> None:
                                     "presets", "rappel", "stocker", "rpc", "decrire", "restaurer", "autotest", "topologie"])
     ap.add_argument("--signal-valide", action="store_true",
                     help="Louis a confirmé niveau sûr et personne exposé : autorise l'écriture du générateur (≤ -30 dB)")
+    ap.add_argument("--nom", help="stocker : nom donné au preset (sinon il garde le nom du preset chargé)")
     ap.add_argument("--blocs", help="autotest : blocs à tester, séparés par des virgules (ex. GEQ1,Afs1,Limiter)")
     ap.add_argument("args", nargs="*")
     ap.add_argument("--mdp", default=None,
@@ -487,6 +488,10 @@ def main() -> None:
         if not re.fullmatch(r"\d{1,3}", a.args[1]) or not 1 <= int(a.args[1]) <= 100:
             sys.exit(f"REFUS : numéro de preset invalide : {a.args[1]!r} (1 à 100).")
         a.args[1] = str(int(a.args[1]))                      # « 05 » → « 5 », clé de Get presetName
+        if a.nom and a.cmd == "rappel":
+            sys.exit("REFUS : --nom ne sert qu'à `stocker` (le rappel ne renomme rien).")
+        if a.nom and not re.fullmatch(r"[A-Za-z0-9 _.+\-()/']{1,50}", a.nom):
+            sys.exit("REFUS : nom de preset : 1 à 50 caractères (lettres sans accent, chiffres, espace, _ . + - ( ) / ').")
         if a.cmd == "rappel" and not a.protection_validee:
             sys.exit("REFUS : un rappel de preset modifie aussi les PROTECTIONS (limiteurs, HPF, mutes). "
                      "Validation explicite de Louis requise (--protection-validee).")
@@ -615,7 +620,8 @@ def main() -> None:
             if not a.appliquer:
                 print(f"SIMULATION : rappel du preset {n} (ajouter --appliquer). Couper les amplis ou muter avant un rappel."
                       if rappel else
-                      f"SIMULATION : mémoriser l'état courant dans le preset {n} (ÉCRASE ce preset). Ajouter --appliquer.")
+                      f"SIMULATION : mémoriser l'état courant dans le preset {n} (ÉCRASE ce preset)"
+                      + (f" sous le nom {a.nom!r}" if a.nom else "") + ". Ajouter --appliquer.")
                 return
             noms = {}
             for r in d.rpc("Get", ["1", "100", "presetName"]):
@@ -627,14 +633,26 @@ def main() -> None:
             print(f"Instantané complet avant {a.cmd} : {snap}")
             journaliser(f"{'RAPPEL' if rappel else 'STORE'} preset {n} ({noms.get(n, 'vide')!r}) sur {ip} "
                         f"[instantané {snap.name}]"
-                        + ("" if rappel else " — l'ancien contenu du preset n'est pas sauvegardé (illisible sans le charger)"))
-            reps = d.rpc("Load" if rappel else "Store", [n])
+                        + ("" if rappel else " — l'ancien contenu du preset n'est pas sauvegardé (illisible sans le charger)")
+                        + (f" — renommé {noms.get(n)!r} -> {a.nom!r}" if a.nom and not rappel else ""))
+            # Store [n, nom] renomme la case (constaté le 24/11/2026) ; Store [n] garde le nom du preset chargé
+            reps = d.rpc("Load" if rappel else "Store", [n] + ([a.nom] if a.nom and not rappel else []))
             for r in reps:
                 print(r.get("result"), r.get("error") or "")
             erreurs = [r["error"] for r in reps if r.get("error")]
             if not reps or erreurs:
                 journaliser(f"ECHEC {a.cmd} preset {n} sur {ip} : {erreurs or 'aucune réponse'}")
                 sys.exit(f"ÉCHEC : {a.cmd} du preset {n} : {erreurs or 'aucune réponse'}. Comparer à l'instantané {snap}.")
+            if not rappel:
+                relu_nom = {}
+                for r in d.rpc("Get", [n, n, "presetName"]):
+                    relu_nom.update(r.get("result") or {})
+                attendu = a.nom or None
+                print(f"  nom de la case {n} (relu) : {relu_nom.get(n)!r}")
+                journaliser(f"STORE preset {n} sur {ip} : nom relu {relu_nom.get(n)!r}")
+                if attendu and str(relu_nom.get(n, "")).strip() != attendu.strip():
+                    journaliser(f"ECART nom preset {n} sur {ip} : relu {relu_nom.get(n)!r}, attendu {attendu!r}")
+                    sys.exit(f"ÉCHEC : la case {n} s'appelle {relu_nom.get(n)!r}, pas {attendu!r}.")
             if rappel:
                 try:
                     charge = d.get("\\\\Node\\Settings\\SV\\LoadedPresetName")

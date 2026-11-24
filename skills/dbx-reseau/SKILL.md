@@ -32,7 +32,8 @@ Règles appliquées par l'outil (ne pas les contourner) :
   Un « arrondi machine » est accepté et journalisé dans deux cas seulement :
   - grille interne de moins de 2,5 % sur fréquence, pente, Q, pourcentage ou rapport (Release 218 donne 220 dB/s) ;
   - gains de mixeur InMixer et MidRouter à 0,25 dB près (1 dB sous −60 dB).
-  Jamais sur un seuil, un temps ou un gain de sortie.
+  - délais (DelayOut/DelayMid Amount) au nombre entier d'échantillons : 1 échantillon à 96 kHz = 0,0104 ms (1.7 → 1.71 ms).
+  Jamais sur un seuil, une attaque ou un gain de sortie.
 
 ## Étape 0 — Décrire et situer (lecture seule)
 ```
@@ -93,7 +94,7 @@ Non testés : 3 réglages à valeur unique (Min = Max : AFS MaxTotalFilters, typ
 ```
 dbx_hiqnet.py presets <ip>
 dbx_hiqnet.py rappel <ip> <n> --appliquer --protection-validee     # muter / amplis coupés avant
-dbx_hiqnet.py stocker <ip> <n> --appliquer                          # ÉCRASE le preset n (accord de Louis, bon numéro)
+dbx_hiqnet.py stocker <ip> <n> --appliquer [--nom "CKI 4V Mono"]   # ÉCRASE le preset n ; --nom renomme la case
 ```
 - Un rappel prend de 8 à 18 s et remet les mutes du preset. Les mutes de zone ne sont pas gardés tels qu'au stockage : ZoneGains 3 et 4 sur On au rappel du n° 27, comme au n° 31.
 - Les numéros d'instance dépendent de la topologie. En stéréo liée, seules les instances impaires existent et une écriture agit sur les deux sorties. Toujours relancer `topologie` et `instantane` après un rappel.
