@@ -1,8 +1,8 @@
 {
- "version": 1,
+ "version": 2,
  "systeme": "ma-sono-cki",
  "config": "data/configs/ma-sono-cki.yaml",
- "date": "2026-11-24T13:55:05",
+ "date": "2026-11-24T18:53:50",
  "processeur": "DBX_VENU360",
  "style": "techno",
  "profil": "exigeant",
@@ -10,6 +10,8 @@
  "distance_m": 20.0,
  "hauteur_ecoute_m": 1.7,
  "recalage": null,
+ "eq_generale": null,
+ "peq_entree": [],
  "voies": [
   {
    "nom": "SUB",
@@ -27,6 +29,8 @@
    "polarite": "normale",
    "gain_db": 0.0,
    "delai_ms": 4.66,
+   "phase_deg": 0.0,
+   "peq": [],
    "limiteur": {
     "seuil": -23.1,
     "unite": "dBFS",
@@ -74,6 +78,8 @@
    "polarite": "normale",
    "gain_db": -12.6,
    "delai_ms": 1.76,
+   "phase_deg": 0.0,
+   "peq": [],
    "limiteur": {
     "seuil": -26.1,
     "unite": "dBFS",
@@ -110,6 +116,8 @@
    "polarite": "normale",
    "gain_db": -16.0,
    "delai_ms": 1.25,
+   "phase_deg": 0.0,
+   "peq": [],
    "limiteur": {
     "seuil": -26.1,
     "unite": "dBFS",
@@ -139,6 +147,8 @@
    "polarite": "normale",
    "gain_db": -19.9,
    "delai_ms": 0.0,
+   "phase_deg": 0.0,
+   "peq": [],
    "limiteur": {
     "seuil": -31.1,
     "unite": "dBFS",

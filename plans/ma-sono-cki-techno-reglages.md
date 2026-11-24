@@ -1,5 +1,5 @@
 # Plan de réglages — ma-sono-cki · style « techno » (profil exigeant)
-Généré le 2026-11-24T13:55:05 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
+Généré le 2026-11-24T18:53:50 depuis `data/configs/ma-sono-cki.yaml` · processeur DBX_VENU360 · point d'écoute 20 m / 1.7 m
 
 ## Feuille de saisie (une ligne par sortie, protections d'abord)
 
