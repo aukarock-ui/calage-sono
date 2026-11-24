@@ -205,7 +205,8 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
     la voie la plus chargée fixe le niveau, et élargir une bande la charge ;
   - lobes verticaux au raccord : deux sources égales, écartement de `geometrie_pile`, perte moyenne sur le public ;
   - écart de directivité à la demi-couverture du pavillon (piston 2·J1(x)/x contre −6 dB du pavillon).
-- **Score** = puissance − lobes − 0,5 × directivité (poids = hypothèses). Les variantes à moins de 0,5 dB de la
+- **Score** = puissance − lobes − 0,5 × directivité (poids = hypothèses, remplacés par les poids appris de
+  `data/apprentissage/poids_coupures.yaml` dès qu'il existe : voir « Retours de mesure »). Les variantes à moins de 0,5 dB de la
   meilleure sont équivalentes : l'outil conseille la plus proche de l'actuel. On départage les 2-3 premières à la
   mesure (ONAX + hauteur) et à l'écoute.
 - **Limites** : sensibilité de fiche supposée plate dans la bande ; HP seul (ni réseau de HP, ni caisse) ;
@@ -234,6 +235,21 @@ Grille au 1/6 d'octave par raccord, pente de la config conservée.
    géométrie y sont admis), historique des écarts calcul/mesure. Un gain mesuré qui RELÈVE un plafond exige
    `--protection-validee` ; un écart de gain > 3 dB exige `--forcer-gain` (calibre ? sélecteur ?). Régénérer le plan (étape 2)
    et réappliquer (pas max : ±3 dB, ±0,5 ms par écriture hors construction de preset). Noter les écarts dans ETAT.
+5 bis. **Essai des coupures au micro** (banc avec micro, REW) : `tools/essai_coupures.py` (skill `mesure-acoustique`,
+   « Départager des variantes ») mesure le témoin et les 2-3 meilleures variantes, retient la meilleure à la mesure,
+   propose le recalage des délais et alimente l'historique qui recale les poids de l'optimiseur.
+
+## Retours de mesure (amélioration de la technique)
+- Chaque essai au micro ajoute à `data/apprentissage/coupures.yaml` les critères PRÉDITS (puissance, lobes,
+  directivité) et la pénalité MESURÉE de chaque variante (ajout seulement).
+- `python tools/coupures.py --calibrer` ajuste les poids lobes / directivité (moindres carrés bornés à [0, 3]) quand
+  l'historique compte ≥ 3 essais à plusieurs positions et ≥ 6 variantes ; il affiche l'erreur de prédiction avant /
+  après ; `--appliquer` adopte les poids (fichier `poids_coupures.yaml`, ancien jeu gardé en historique). Proposer à
+  Louis avant d'appliquer.
+- Jamais appris : contraintes dures (bandes HP, planchers de puissance, pavillon, excursion BR), seuils, garde-fous.
+- Délais alignés à la mesure (témoin) → `recalage-propose.yaml` → `preset_auto --recaler` : le centre acoustique
+  effectif de chaque voie corrige tous les calculs suivants.
+- Noter dans ETAT ce que chaque essai a appris (prédit / mesuré, poids, centres acoustiques).
 
 ## Appliquer les réglages
 - Processeur pilotable par le kit (voir `docs/processeurs.md`) : écriture réseau, lecture seule par défaut,

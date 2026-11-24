@@ -3,6 +3,33 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-24 (suite 4) : essai des coupures au micro, en autonomie, avec apprentissage
+- Demande de Louis : tester le filtrage optimal pour de vrai, au micro, sans aide, et améliorer la technique grâce aux mesures. Choix de Louis : REW en sweep, un seul micro.
+- **Nouveaux outils** (prêts, sans essai réel pour l'instant) :
+  - `tools/essai_coupures.py` : `preparer` (témoin et variantes de `coupures.py`), `mesurer` (une position par lancement), `conclure` (rapport, historique, recalage proposé) ;
+  - `tools/analyse_raccord.py` : perte de sommation, phase, ondulation, régularité entre positions, alignement par temps d'arrivée puis phase ;
+  - `coupures.py --calibrer` : poids appris dans `data/apprentissage/poids_coupures.yaml`.
+- **Garde-fous** :
+  - `--signal-autorise` est passé seulement après le « go » de Louis. Niveau : départ à −20 dBFS, montée par +3 dB tant que le rapport signal/bruit reste sous 15 dB, plafond `--niveau-max`, au maximum −10 dBFS ;
+  - `--protection-validee` est requis. Pendant l'essai, aucune inversion de polarité n'est appliquée : elle est seulement proposée. Les délais bougent par pas de 0,5 ms au plus, avec relecture ;
+  - à la fin, et sur toute erreur : les sorties sont re-mutées, l'état d'origine est rétabli et contrôlé, les sorties restent mutées.
+- **Constaté en simulation**, en cherchant le meilleur délai, ou par l'énergie seule, ou par l'efficacité de sommation sur ±1/2 octave :
+  - sur un LR24 à 1410 Hz, « inversé + une demi-période » vaut presque « en phase » (0,984 contre 0,980) ;
+  - d'où l'étape grossière par le retard de groupe de l'interspectre, comme la règle « IR d'abord » de la méthode ;
+  - avec une erreur volontaire de MEDIUM à −6 cm, l'essai retrouve +0,16 ms, contre 0,175 ms attendu.
+- **Simulation CKI** (P1 à 20 m / 1,7 m, P2 à 20 m / 1,2 m, P3 à 10 m / 1,7 m) :
+  - le témoin 90 / 400 / 1410 sort premier ;
+  - les variantes KICK/MEDIUM à 198 et 223 Hz ont un moins bon raccord, et la mesure y propose d'inverser KICK : bandes étroites, KICK HPF 90 et MEDIUM ;
+  - la simulation ne modélise ni la directivité ni la réponse propre des HP : seul le réel compte.
+- **Revue controleur-securite** : 5 P1 corrigés (simulation jamais démutée ; rétablissement sans seuil au-dessus du plafond ni limiteur Off, état relu à chaque lancement, instantané complet ; plus de rappel de case ; code non nul si incomplet), P2 corrigés (niveau par voie et départ sous le plafond, mute vérifié avant démute, pénalité ≥ 0, poids ≥ 0,1 et refus si pas mieux, filtre par système). Restent notés : SIGTERM, sweep REW non stoppé par Ctrl-C.
+- **Tests** : 178, dont un essai complet sur `faux_venu360` avec le moteur simulé.
+- **À faire le jour du banc** :
+  - essai à blanc `--simulation` sur la vraie machine, avec le « go » de Louis ;
+  - réglage REW : timing reference en boucle, ASIO ;
+  - premier `mesurer` réel ;
+  - `conclure`, puis écoute ;
+  - après 3 essais à plusieurs positions : `coupures.py --calibrer`.
+
 ## 2026-11-24 (suite 3) : optimiseur de coupures, gain de voie dans le crossover
 
 - **Gain de voie** : écrit dans `CrossoverIIR<n>\SV\Band_1_Gain` (choix de Louis, plus facile à contrôler). OutputGains est maintenu à 0 dB.

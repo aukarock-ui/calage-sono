@@ -43,8 +43,8 @@ Python : utiliser `.venv\Scripts\python.exe` quand `.venv` existe (créé par `i
 
 ## Arborescence
 - `data/materiel.yaml` bibliothèque de composants · `data/configs/` un fichier par système (`_modele-systeme.yaml`)
-- `data/evenements/` une fiche par date (`_modele.yaml`) · `data/venu360_parametres.yaml` carte réseau VENU360
-- `tools/` coupures (optimise les points de coupure), preset_auto (config → plan de réglages → `dbx_hiqnet appliquer-plan` via dbx_plan ; `--recaler` par la mesure), reglages_pile, calc_systeme, excursion_br, garde_fous, plan_3d, osm_client, rew_client, mesure_tf, dbx_hiqnet, faux_venu360, dcx2496, tracks_dsp, linea_tipi
+- `data/evenements/` une fiche par date (`_modele.yaml`) · `data/venu360_parametres.yaml` carte réseau VENU360 · `data/apprentissage/` historique prédit/mesuré, poids appris
+- `tools/` coupures (optimise les points de coupure ; `--calibrer` par les essais), essai_coupures + analyse_raccord (essai des coupures au micro, REW, apprentissage), preset_auto (config → plan de réglages → `dbx_hiqnet appliquer-plan` via dbx_plan ; `--recaler` par la mesure), reglages_pile, calc_systeme, excursion_br, garde_fous, plan_3d, osm_client, rew_client, mesure_tf, dbx_hiqnet, faux_venu360, dcx2496, tracks_dsp, linea_tipi
 - `data/protocoles/` tables DCX2496, dictionnaires de classes VENU360 (appli Windows) · `docs/rew_api_5.40b121.json` · `docs/references/` ouvrages (index public, PDF hors GitHub)
 - `skills/` methode-calage, nouveau-systeme, fiche-evenement, mesure-acoustique, dbx-reseau
 - `docs/` processeurs, protocole-dbx, protocoles-autres, outils-externes · `plans/` plans générés · `mesures/` · `journal/`

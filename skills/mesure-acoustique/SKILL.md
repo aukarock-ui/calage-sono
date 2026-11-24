@@ -68,11 +68,33 @@ description: Mesurer et analyser la réponse d'un système son (fonction de tran
 4. Tester polarité inversée si l'écart dépasse ±90° sans solution de délai raisonnable.
 5. Valider en mesurant A+B : sommation ≈ +6 dB à Fc pour des niveaux égaux.
 
-## Départager des variantes de coupure (`coupures.py`)
-Pour chaque variante (2-3 au plus), régénérer le plan et l'appliquer (sorties mutées, `appliquer-plan`), puis mesurer
-au même point ONAX et à deux hauteurs (assis / debout, ou plus près) : réponse autour de chaque coupure, trou ou bosse
-de sommation, régularité en hauteur. Puis écouter avec un même morceau de référence. Noter le choix et ses raisons
-dans ETAT.
+## Départager des variantes de coupure : `tools/essai_coupures.py` (automatique, REW, un micro)
+Prérequis : REW lancé avec `-api`, **timing reference en boucle** (sinon refus : les phases de deux sweeps ne seraient
+pas comparables), interface en ASIO, micro calibré ; VENU360 sur un preset « 6 × Mono Fullrange » à seuils protégés
+(sous les plafonds calculés).
+1. `essai_coupures.py preparer data/configs/<sys>.yaml --style <style> --positions P1:20x1.7,P2:20x1.2,P3:10x1.7
+   [--variantes 3] [--accepter-non-verifie]` → témoin (config actuelle) + meilleures variantes de `coupures.py`, une
+   config et un plan par variante. Aucun accès machine, aucun son. P1 = point du plan (ONAX) ; ≥ 2 positions pour
+   mesurer la régularité en hauteur (= les lobes).
+2. Louis place le micro en P1 et confirme : **niveau sûr, personne exposé, pas de concert** → seulement alors
+   `essai_coupures.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise
+   [--niveau-max -12]`. Une position par lancement : entre deux, Louis déplace le micro et le dit.
+   Déroulé par variante : plan écrit sorties mutées, chaque voie seule, alignement à chaque raccord (1re position :
+   temps d'arrivée puis phase, REW `aligner` contre-vérifié par `analyse_raccord.meilleur_delai`, ±0,5 ms par écriture
+   puis remesure ; une inversion de polarité est seulement PROPOSÉE), chaque paire, système complet. Niveau PAR VOIE :
+   min(−20 dBFS, plafond) puis +3 dB tant que le signal est à moins de 15 dB au-dessus du bruit (mesure sorties toutes
+   mutées), jamais au-dessus de `--niveau-max` ; paires et système au plus bas des niveaux concernés. À la fin, et sur
+   toute erreur ou Ctrl-C : 6 sorties mutées, valeurs touchées remises à l'état du début du lancement (relu à chaque
+   lancement, instantané complet dans journal/instantanes) — sauf protection moins sûre (seuil au-dessus du plafond,
+   limiteur Off), signalée et non réécrite ; sorties LAISSÉES MUTÉES (Louis démute) ; code non nul si incomplet.
+3. `essai_coupures.py conclure <dossier>` → `rapport.md` : par variante et raccord, perte de sommation, écart de
+   phase, ondulation contre la cible du style, régularité entre positions ; pénalité mesurée et score (puissance
+   calculée − pénalité). Ajout à l'historique d'apprentissage, `recalage-propose.yaml` (délais du témoin).
+4. Écouter la gagnante et le témoin avec un même morceau de référence ; décision de Louis ; écriture par
+   `coupures.py --ecrire N` (rang du rapport de coupures) puis `preset_auto` et `appliquer-plan`. Noter dans ETAT.
+Essai à blanc (aucun son) : `mesurer … --simulation [--erreur-sim MEDIUM:-6]` — acoustique calculée depuis ce qui est
+réellement écrit dans le processeur, sorties JAMAIS démutées (mutes virtuels) ; sert à vérifier la chaîne avant le jour
+du banc. Limites : SIGTERM non intercepté ; Ctrl-C ne stoppe pas un sweep REW en cours (sorties mutées).
 
 ## Recalage des calculs par la mesure (`preset_auto --recaler`)
 Après application d'un plan, mesurer et noter dans `mesures/<sys>-<date>.yaml` :

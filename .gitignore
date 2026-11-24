@@ -5,6 +5,7 @@ __pycache__/
 journal/instantanes/
 journal/ecritures.log
 mesures/*
+data/configs/_essai/
 !mesures/.gitkeep
 *.wav
 *.mdat

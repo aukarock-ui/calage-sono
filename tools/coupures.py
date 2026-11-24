@@ -29,8 +29,12 @@ Critères, tous en dB :
 Score = puissance − POIDS_LOBES·lobes − POIDS_DIRECTIVITE·directivité. Les poids sont des HYPOTHÈSES (à recaler par la
 mesure et l'écoute) ; chaque critère est affiché séparément pour juger soi-même.
 
+Les poids en vigueur viennent de data/apprentissage/poids_coupures.yaml s'il existe (écrit par --calibrer à partir des
+essais au micro de essai_coupures.py), sinon des valeurs ci-dessous. Les contraintes dures ne sont JAMAIS apprises.
+
 Usage :
   python tools/coupures.py data/configs/ma-sono-cki.yaml --style techno [--public 5-30] [--top 5]
+  python tools/coupures.py --calibrer [--appliquer]   # recale les poids sur l'historique prédit/mesuré
 """
 from __future__ import annotations
 
@@ -51,6 +55,11 @@ import reglages_pile as rp         # noqa: E402
 
 POIDS_LOBES = 1.0          # 1 dB de perte moyenne au public = 1 dB de puissance (hypothèse)
 POIDS_DIRECTIVITE = 0.5    # écart de directivité moins pénalisé : partiellement corrigé par le placement (hypothèse)
+FICHIER_POIDS = Path(__file__).resolve().parent.parent / "data" / "apprentissage" / "poids_coupures.yaml"
+HISTORIQUE_ESSAIS = FICHIER_POIDS.with_name("coupures.yaml")
+POIDS_BORNES = (0.1, 3.0)  # un poids appris reste dans ces bornes : jamais 0 (un critère ne disparaît pas en silence),
+                           # jamais au-delà de 3 (modèle ou mesure à revoir, pas à suivre)
+CALIBRAGE_MIN_ESSAIS, CALIBRAGE_MIN_VARIANTES = 3, 6
 ANGLE_DEFAUT_DEG = 30.0
 X_MOINS_6DB = 2.2151       # 2·J1(x)/x = 0,5
 PAS_OCTAVE = 6
@@ -58,6 +67,63 @@ BANDE_MIN_OCTAVES = 1.0
 LIMITE_COMBINAISONS = 100_000   # au-delà : grilles éclaircies au 1/3 d'octave (l'actuel est gardé)
 EQUIVALENCE_DB = 0.5       # écart de score sous lequel deux variantes sont tenues pour équivalentes (hypothèse :
                            # en dessous, ni la mesure ni l'écoute ne les départagent) -> on garde la plus proche de l'actuel
+
+
+def poids(fichier: str | Path | None = None) -> dict:
+    """Poids en vigueur : appris (fichier) s'il existe et reste dans les bornes, sinon hypothèses par défaut."""
+    f = Path(fichier or FICHIER_POIDS)
+    if f.exists():
+        x = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        lo, di = x.get("lobes"), x.get("directivite")
+        if all(isinstance(v, (int, float)) and POIDS_BORNES[0] <= v <= POIDS_BORNES[1] for v in (lo, di)):
+            return {"lobes": float(lo), "directivite": float(di), "source": f"appris ({x.get('date')}, n={x.get('n')})"}
+        raise ValueError(f"{f} : poids hors bornes {POIDS_BORNES} ou illisibles — fichier à revoir")
+    return {"lobes": POIDS_LOBES, "directivite": POIDS_DIRECTIVITE, "source": "hypothèses par défaut"}
+
+
+def calibrer(historique: str | Path | None = None, fichier_poids: str | Path | None = None,
+             appliquer: bool = False, systeme: str | None = None) -> dict:
+    """Ajuste (moindres carrés bornés) les poids pour que la pénalité PRÉDITE (lobes, directivité) suive la pénalité
+    MESURÉE par essai_coupures. Seuls les essais à plusieurs positions comptent (la régularité en hauteur, qui mesure
+    les lobes, demande au moins deux positions). Écrit le fichier de poids seulement si `appliquer`."""
+    from scipy.optimize import lsq_linear
+    h = Path(historique or HISTORIQUE_ESSAIS)
+    essais = [e for e in ((yaml.safe_load(h.read_text(encoding="utf-8")) or {}).get("essais") or [] if h.exists() else [])
+              if e.get("regularite_mesuree") and (systeme is None or e.get("systeme") == systeme)]
+    lignes = [(v["predit"].get("lobes_db") or 0.0, v["predit"].get("directivite_db") or 0.0, v["penalite_mesuree_db"])
+              for e in essais for v in e["variantes"] if v.get("penalite_mesuree_db") is not None]
+    avant = poids(fichier_poids)
+    out = {"essais": len(essais), "variantes": len(lignes), "avant": avant, "systeme": systeme or "tous"}
+    if len(essais) < CALIBRAGE_MIN_ESSAIS or len(lignes) < CALIBRAGE_MIN_VARIANTES:
+        out["refus"] = (f"historique insuffisant : {len(essais)} essai(s) à plusieurs positions, {len(lignes)} variante(s) "
+                        f"(il faut ≥ {CALIBRAGE_MIN_ESSAIS} et ≥ {CALIBRAGE_MIN_VARIANTES}) : poids inchangés")
+        return out
+    X = np.array([[a, b] for a, b, _ in lignes])
+    y = np.array([c for *_, c in lignes])
+    sol = lsq_linear(X, y, bounds=POIDS_BORNES)
+    w = [round(float(v), 3) for v in sol.x]
+
+    def rmse(wl, wd):
+        return round(float(np.sqrt(np.mean((X @ np.array([wl, wd]) - y) ** 2))), 3)
+    out.update({"apres": {"lobes": w[0], "directivite": w[1]}, "rmse_avant_db": rmse(avant["lobes"], avant["directivite"]),
+                "rmse_apres_db": rmse(*w),
+                "ecart_aux_defauts": {"lobes": round(w[0] - POIDS_LOBES, 3), "directivite": round(w[1] - POIDS_DIRECTIVITE, 3)}})
+    if out["rmse_apres_db"] >= out["rmse_avant_db"]:
+        out["refus"] = "les poids appris ne prédisent pas mieux que les poids actuels : poids inchangés"
+        return out
+    if appliquer:
+        f = Path(fichier_poids or FICHIER_POIDS)
+        ancien = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}) if f.exists() else {}
+        doc = {"lobes": w[0], "directivite": w[1], "date": __import__("datetime").date.today().isoformat(),
+               "n": len(lignes), "essais": len(essais), "rmse_db": out["rmse_apres_db"],
+               "historique": (ancien.get("historique") or []) + [{"date": ancien.get("date"), "lobes": avant["lobes"],
+                                                                  "directivite": avant["directivite"]}]}
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.name + ".tmp")
+        tmp.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        __import__("os").replace(tmp, f)
+        out["ecrit"] = str(f)
+    return out
 
 
 def grille(fmin: float, fmax: float) -> list[float]:
@@ -269,6 +335,7 @@ def optimiser(chemin_config: str, style: str | None = None, public: tuple[float,
         notes.append("trop de combinaisons : grilles éclaircies au 1/3 d'octave")
     if math.prod(len(c) for c in candidats.values()) > LIMITE_COMBINAISONS:
         raise ValueError("trop de combinaisons même au 1/3 d'octave : optimiser une partie des raccords à la fois")
+    pw = poids()
     cache = {(cle, f): criteres_raccord(cle, f) for cle in candidats for f in candidats[cle]}
     cles = list(candidats)
 
@@ -286,7 +353,7 @@ def optimiser(chemin_config: str, style: str | None = None, public: tuple[float,
         dirp = sum(x["directivite_db"] or 0 for x in crit)
         return {"coupures_hz": dict(zip([f"{b}/{h}" for b, h in cles], choix)), "puissance_db": p,
                 "voie_limitante": vo["voie_limitante"], "reserves_db": vo["reserves_db"], "lobes_db": round(lob, 2), "directivite_db": round(dirp, 2),
-                "score": round(p - POIDS_LOBES * lob - POIDS_DIRECTIVITE * dirp, 2),
+                "score": round(p - pw["lobes"] * lob - pw["directivite"] * dirp, 2),
                 "detail": {f"{b}/{h}": x for (b, h), x in zip(cles, crit)}}
 
     res = [r for r in (evaluer(ch) for ch in itertools.product(*(candidats[k] for k in cles))) if r]
@@ -312,7 +379,7 @@ def optimiser(chemin_config: str, style: str | None = None, public: tuple[float,
     return {"config": str(Path(chemin_config).resolve()), "empreinte": _empreinte(chemin_config),
             "systeme": cfg.get("nom"), "style": style, "public_m": list(public), "hauteur_ecoute_m": hauteur_ecoute_m,
             "raccords": raccords, "actuel": ref, "n_equivalentes": len(equiv),
-            "gain_vs_actuel_db": round(conseil["score"] - ref["score"], 2) if ref else None, "classement": res[:top], "n_combinaisons": len(res), "notes": notes,
+            "gain_vs_actuel_db": round(conseil["score"] - ref["score"], 2) if ref else None, "classement": res[:top], "n_combinaisons": len(res), "notes": notes, "poids": pw,
             "pentes": {f"{b}/{h}": f"{fam}{p}" for (b, h), (fam, p) in pentes.items()},
             "crossover_actuel": {v["nom"]: dict(xo.get(v["nom"]) or {}) for v in voies}}
 
@@ -324,8 +391,8 @@ def rapport(r: dict) -> str:
         l.append(f"- {x['bas']}/{x['haut']} : {x['bornes_hz'][0]:g}–{x['bornes_hz'][1]:g} Hz "
                  f"(actuel {x['actuel_hz']:g}) — " + ("; ".join(x["justification"]) or "aucune contrainte de fiche"))
     l += [*[f"- ⚠ {n}" for n in r["notes"]], "",
-          f"## Classement ({r['n_combinaisons']} combinaisons valides ; score = puissance − {POIDS_LOBES:g}×lobes − "
-          f"{POIDS_DIRECTIVITE:g}×directivité, poids = hypothèses)", "",
+          f"## Classement ({r['n_combinaisons']} combinaisons valides ; score = puissance − {r['poids']['lobes']:g}×lobes − "
+          f"{r['poids']['directivite']:g}×directivité, poids : {r['poids']['source']})", "",
           f"Variante 1 = CONSEILLÉE : la plus proche de l'actuel parmi les {r['n_equivalentes']} variantes à moins de "
           f"{EQUIVALENCE_DB:g} dB de la meilleure ; gain de score vs actuel : {r['gain_vs_actuel_db']:+} dB"
           + (" (non significatif : garder l'actuel)" if (r['gain_vs_actuel_db'] or 0) < EQUIVALENCE_DB else "") + ".", "",
@@ -439,8 +506,10 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("config")
+    ap.add_argument("config", nargs="?")
     ap.add_argument("--style")
+    ap.add_argument("--calibrer", action="store_true", help="recale les poids sur data/apprentissage/coupures.yaml")
+    ap.add_argument("--appliquer", action="store_true", help="--calibrer : écrit les poids appris")
     ap.add_argument("--public", default="5-30", help="distances du public, min-max en m (défaut 5-30)")
     ap.add_argument("--hauteur-ecoute", type=float, default=1.7)
     ap.add_argument("--distance-ref", type=float, default=20.0, help="point d'alignement des délais (m)")
@@ -449,6 +518,24 @@ def main():
                     help="écrit la variante N (défaut 1 = conseillée) dans `crossover` de la config ; ensuite "
                          "preset_auto (plan) puis appliquer-plan (processeur)")
     a = ap.parse_args()
+    if a.calibrer:
+        try:
+            c = calibrer(appliquer=a.appliquer,
+                         systeme=(cs.charger(a.config)[1].get("nom") if a.config else None))
+        except (ValueError, OSError, KeyError, yaml.YAMLError) as e:
+            sys.exit(f"ERREUR : {e}")
+        print(f"Historique ({c['systeme']}) : {c['essais']} essai(s) à plusieurs positions, {c['variantes']} variante(s).")
+        print(f"Poids actuels : lobes {c['avant']['lobes']:g}, directivité {c['avant']['directivite']:g} ({c['avant']['source']})")
+        if c.get("apres"):
+            print(f"Poids appris : lobes {c['apres']['lobes']:g}, directivité {c['apres']['directivite']:g} "
+                  f"(écart aux défauts {c['ecart_aux_defauts']}) — erreur {c['rmse_avant_db']} -> {c['rmse_apres_db']} dB RMS")
+        if c.get("refus"):
+            print(c["refus"])
+            return
+        print(f"Écrit : {c['ecrit']}" if c.get("ecrit") else "Ajouter --appliquer pour les adopter.")
+        return
+    if not a.config:
+        ap.error("config requise (sauf --calibrer)")
     pmin, pmax = (float(x) for x in a.public.split("-"))
     try:
         r = optimiser(a.config, a.style, (pmin, pmax), a.hauteur_ecoute, a.distance_ref, a.top)
