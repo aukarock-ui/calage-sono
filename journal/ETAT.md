@@ -32,7 +32,11 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
 - **À faire sur la machine (go de Louis)** : (a) `banc_electrique.py --simulation` puis en vrai, amplis coupés, une
   sortie en boucle sur l'interface ; (b) le jour du banc micro, `optim_preset` en vrai, écoute, puis recaler +
   appliquer-plan. Non encore exercé : l'étape phase sur une vraie rotation (le simulateur n'en a pas eu besoin).
-- Questions : firmware du VENU360 (à noter dans venu360_phase.yaml) ; quelle sortie câbler pour le banc électrique.
+- Relevé (lecture seule, 24/11 soir) : firmware VENU360 **2.0.5.0**, topologie 6 × Mono Fullrange. Le plan CKI
+  techno recalculé = la machine, 77/77 (8 écarts de forme seulement : « 16.0 ms » relu pour « 16ms »). Sorties 1-4
+  DÉMUTÉES, 5-6 mutées. Autotest 6 : PEQOut 246/246, PEQ1 61/61, Band_1_Phase écrits et relus sur la vraie machine.
+  Annonce d'optim_preset (sans --appliquer) sur la vraie machine : 259 paramètres, aucune écriture.
+- Questions : quelle sortie câbler pour le banc électrique.
 
 ## 2026-11-24 (suite 4) : essai des coupures au micro, en autonomie, avec apprentissage
 - Demande de Louis : tester le filtrage optimal pour de vrai, au micro, sans aide, et améliorer la technique grâce aux mesures. Choix de Louis : REW en sweep, un seul micro.
