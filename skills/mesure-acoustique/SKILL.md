@@ -77,7 +77,7 @@ pas comparables), interface en ASIO, micro calibré ; VENU360 sur un preset « 6
    config et un plan par variante. Aucun accès machine, aucun son. P1 = point du plan (ONAX) ; ≥ 2 positions pour
    mesurer la régularité en hauteur (= les lobes).
 2. Louis place le micro en P1 et confirme : **niveau sûr, personne exposé, pas de concert** → seulement alors
-   `essai_coupures.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise
+   `essai_coupures.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise --appliquer
    [--niveau-max -12]`. Une position par lancement : entre deux, Louis déplace le micro et le dit.
    Déroulé par variante : plan écrit sorties mutées, chaque voie seule, alignement à chaque raccord (1re position :
    temps d'arrivée puis phase, REW `aligner` contre-vérifié par `analyse_raccord.meilleur_delai`, ±0,5 ms par écriture
@@ -98,14 +98,14 @@ du banc. Limites : SIGTERM non intercepté ; Ctrl-C ne stoppe pas un sweep REW e
 
 ## Optimiser tout le preset : `tools/optim_preset.py` (automatique, REW, un micro)
 Prérequis : ceux de l'essai des coupures ; et, une fois par firmware, le **banc électrique**
-`banc_electrique.py <config> --sortie N --ip <ip> --amplis-coupes --signal-autorise --protection-validee [--enregistrer]`
+`banc_electrique.py <config> --sortie N --ip <ip> --amplis-coupes --signal-autorise --protection-validee --appliquer [--enregistrer]`
 (boucle sortie N → entrée de l'interface, AMPLIS ÉTEINTS) : modèle de Band_1_Phase (constante / retard / table),
 ordre PEQOut / limiteur (seuils de test toujours plus bas que l'actuel), contrôles gain et délai. `--enregistrer`
 écrit `data/protocoles/venu360_phase.yaml` seulement si tout est conforme et rétabli.
 1. `optim_preset.py preparer data/configs/<sys>.yaml --style <style> --positions P1:20x1.7,P2:20x1.2,P3:10x1.7
    [--etapes gains,delais,phase,eq-voies,eq-generale] [--eq-generale <yaml>]` : aucun accès machine, aucun son.
 2. Micro en P1, « go » de Louis (niveau sûr, personne exposé, pas de concert) :
-   `optim_preset.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise`.
+   `optim_preset.py mesurer <dossier> --position P1 --ip <ip> --protection-validee --signal-autorise --appliquer`.
    P1 : plan écrit sorties mutées ; GAINS (niveau de chaque voie seule dans sa bande intérieure contre la cible du
    style, `Band_1_Gain` ±3 dB par écriture, gains ≤ 0) ; DÉLAIS (comme l'essai) ; PHASE (raccords à perte de somme
    > 0,5 dB : rotation de la voie basse prédite par le modèle du banc, ±45° par écriture, gardée seulement si la
@@ -117,6 +117,7 @@ ordre PEQOut / limiteur (seuils de test toujours plus bas que l'actuel), contrô
 4. `optim_preset.py conclure <dossier>` → `rapport.md` avant/après, `recalage-propose.yaml`, `eq-generale.yaml`,
    historique. Rien n'est stocké dans le processeur : preset définitif = `preset_auto --recaler` + `preset_auto
    [--eq-generale]` + `appliquer-plan`, après écoute et « go » de Louis.
+Sans `--appliquer` (essai, optimisation, banc électrique) : ANNONCE de ce qui serait écrit (blocs, nombre de paramètres, pas), rien n'est touché, code 0 ; on la montre à Louis, puis on relance avec `--appliquer` sur son « go ».
 Garde-fous identiques à l'essai (banc.Seance) ; seuils, filtres et polarité jamais modifiés par l'optimisation.
 Essai à blanc : `--simulation` (machine jamais démutée).
 

@@ -360,6 +360,26 @@ def _snr(m: dict, bruit: dict, voie_plan: dict, decalage_db: float = 0.0) -> flo
     return float(10 * np.log10(np.mean(10 ** (s / 10))) + decalage_db - 10 * np.log10(np.mean(10 ** (b / 10))))
 
 
+class Annonce(ValueError):
+    """Sans --appliquer : on annonce ce qui serait écrit, rien n'est touché (code de sortie 0)."""
+
+
+PAS_ANNONCE = ("pas par écriture : gain ±3 dB, délai ±0,5 ms, EQ ±3 dB par bande, phase ±45° ; le plan lui-même est "
+               "écrit d'un bloc, sorties mutées (construction de preset)")
+
+
+def annonce(ip: str, suivis: list[str], quoi: str) -> str:
+    """Texte d'annonce : blocs touchés (avant = état relu au lancement, rétabli à la fin)."""
+    blocs: dict[str, int] = {}
+    for ch in suivis:
+        m = re.match(r"\\\\Preset\\([^\\]+)", ch)
+        blocs[m.group(1) if m else ch] = blocs.get(m.group(1) if m else ch, 0) + 1
+    return (f"ANNONCE — rien n'a été écrit. {quoi} écrirait sur {ip} : "
+            + ", ".join(f"{b} ({n})" for b, n in sorted(blocs.items()))
+            + f" — {len(suivis)} paramètres, relus avant (instantané) et remis à l'état du début à la fin ; sorties "
+            f"mutées entre les mesures ; {PAS_ANNONCE}. Relancer avec --appliquer après le « go » de Louis.")
+
+
 class Seance:
     """Un lancement de mesure à une position. Usage :
         with Seance(d, moteur, dossier, etat, position, plans, journal, ip, niveau_max,
@@ -368,7 +388,8 @@ class Seance:
     En sortie (normale, erreur, Ctrl-C) : 6 sorties mutées, état d'origine rétabli → s.resultat["retablissement"]."""
 
     def __init__(self, d, moteur, dossier, etat: dict, position: dict, plans: list[dict], journal, ip: str,
-                 niveau_max: float, protection_validee: bool, signal_autorise: bool, sauver, etiquette: str = "ESSAI"):
+                 niveau_max: float, protection_validee: bool, signal_autorise: bool, sauver, etiquette: str = "ESSAI",
+                 appliquer: bool = False):
         if not protection_validee:
             raise ValueError("le plan écrit des PROTECTIONS (limiteurs, filtres, mutes) : --protection-validee requis")
         if niveau_max > NIVEAU_PLAFOND_DBFS:
@@ -381,6 +402,7 @@ class Seance:
                              "relancer (preparer) pour refaire la rampe sous ce plafond")
         self.d, self.moteur, self.dossier, self.etat, self.pos = d, moteur, Path(dossier), etat, position
         self.journal, self.ip, self.niveau_max, self.sauver, self.etiquette = journal, ip, niveau_max, sauver, etiquette
+        self.appliquer = appliquer
         self.sorties = {x["sortie"]: x["nom"] for x in plans[0]["voies"]}
         self.suivis = chemins_suivis(plans)        # refuse aussi un plan devenu incohérent (config modifiée)
         self.depart = min(NIVEAU_DEPART_DBFS, niveau_max)
@@ -390,6 +412,8 @@ class Seance:
 
     def __enter__(self):
         import dbx_hiqnet
+        if not self.appliquer:          # avant tout instantané ou écriture : annonce seulement
+            raise Annonce(annonce(self.ip, self.suivis, f"{self.etiquette} position {self.pos['nom']}"))
         d = self.d
         self.origine = {ch: (d.get(ch) or "").strip() for ch in self.suivis}   # relu À CHAQUE lancement
         try:

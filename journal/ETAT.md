@@ -26,9 +26,9 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
   au-dessus du plan et niveau de mesure baissé d'autant ; écart initial > 6 dB = arrêt (panne probable) ; phase
   bornée à −135° (−180° = inversion) ; EQ refusée si la réponse COMPOSÉE dépasse +6 dB ; rétablissement incomplet
   signalé aussi sur le chemin d'erreur.
-- Reste ouvert (décision de Louis) : `optim_preset`/`banc_electrique` écrivent sur la machine avec
-  `--protection-validee` seul (comme essai_coupures), sans `--appliquer` ; « --simulation » ne simule que
-  l'acoustique. Ordre de chaîne mesuré sur une sortie, supposé valable pour les 6.
+- Décision de Louis : `--appliquer` exigé pour écrire (optim_preset, banc_electrique, et essai_coupures par
+  cohérence, même garde-fou banc.Seance) ; sans lui : annonce de ce qui serait écrit, aucune écriture ni mute, code 0.
+  Ordre de chaîne mesuré sur une sortie, supposé valable pour les 6. 192 tests.
 - **À faire sur la machine (go de Louis)** : (a) `banc_electrique.py --simulation` puis en vrai, amplis coupés, une
   sortie en boucle sur l'interface ; (b) le jour du banc micro, `optim_preset` en vrai, écoute, puis recaler +
   appliquer-plan. Non encore exercé : l'étape phase sur une vraie rotation (le simulateur n'en a pas eu besoin).

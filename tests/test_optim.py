@@ -113,7 +113,7 @@ def _lancer(dos, cmd, port, pos=None, **kw):
         cfg = op.charger_etat(dos)["config"]
         moteur = lambda p, s: banc.MoteurSimule(d, cfg, s, p, {"MEDIUM": -6.0}, propre=PROPRE,  # noqa: E731
                                                 ecart_sens_db={"MEDIUM": 4.0})
-        args = dict(protection_validee=True, signal_autorise=False, niveau_max=-12.0) | kw
+        args = dict(protection_validee=True, signal_autorise=False, niveau_max=-12.0, appliquer=True) | kw
         if cmd == "mesurer":
             return op.mesurer_position(dos, pos, d, moteur, dbx_hiqnet.journaliser, "127.0.0.1", **args)
         return op.egaliser(dos, d, moteur, dbx_hiqnet.journaliser, "127.0.0.1", **args)
@@ -198,7 +198,8 @@ import banc_electrique as be  # noqa: E402
 def _banc(port, tmp_path, vrai, chaine, **kw):
     with dbx_hiqnet.Dbx("127.0.0.1", port, "administrator") as d:
         m = be.MoteurElectriqueSimule(d, 2, vrai, chaine)
-        args = dict(amplis_coupes=True, signal_autorise=False, protection_validee=True, dossier=tmp_path / "be") | kw
+        args = dict(amplis_coupes=True, signal_autorise=False, protection_validee=True, dossier=tmp_path / "be",
+                    appliquer=True) | kw
         return be.lancer(d, m, CKI, 2, dbx_hiqnet.journaliser, "127.0.0.1", **args)
 
 
@@ -275,3 +276,20 @@ def test_phase_180_et_bosses_cumulees_refusees():
     with pytest.raises(ValueError, match="composée"):
         preset_auto.valider_peq([{"type": "Bell", "hz": 1000, "gain_db": 5, "q": 1}] * 3, 8, "x")
     assert max(op.GRILLE_PHASE) == 0 and min(op.GRILLE_PHASE) == -135
+
+
+def test_sans_appliquer_annonce_et_rien_n_est_ecrit(machine, tmp_path, monkeypatch):
+    import copy
+    avant = copy.deepcopy(faux_venu360.ARBRE)
+    ecrits = []
+    vrai = op.dd.ecrire_et_relire
+    monkeypatch.setattr(op.dd, "ecrire_et_relire", lambda *a: ecrits.append(a[1]) or vrai(*a))
+    dos = op.preparer(CKI, "techno", banc.lire_positions("P1:20x1.7"), accepter_non_verifie=True,
+                      dossier=tmp_path / "optim")
+    with pytest.raises(banc.Annonce, match="rien n'a été écrit") as e:
+        _lancer(dos, "mesurer", machine, "P1", appliquer=False)
+    assert "PEQOut" in str(e.value) and "--appliquer" in str(e.value)
+    with pytest.raises(banc.Annonce, match="banc électrique"):
+        _banc(machine, tmp_path, {"type": "constante"}, "peq_avant_limiteur", appliquer=False)
+    assert ecrits == [] and faux_venu360.ARBRE == avant                       # aucune écriture, aucun mute
+    assert op.charger_etat(dos)["positions_faites"] == [] and not op.charger_etat(dos).get("instantanes")

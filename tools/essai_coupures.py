@@ -8,7 +8,7 @@ Trois étapes, chacune relançable ; un dossier d'essai garde l'état entre elle
                [--accepter-non-verifie]
      -> variantes = config actuelle (témoin) + meilleures de coupures.optimiser ; une config par variante
         (data/configs/_essai/, gitignoré) et son plan (preset_auto). Aucun accès machine, aucun son.
-  2. mesurer   <dossier> --position P1 --ip <VENU360> --protection-validee --signal-autorise [--niveau-max -12]
+  2. mesurer   <dossier> --position P1 --ip <VENU360> --protection-validee --signal-autorise --appliquer [--niveau-max -12]
                [--simulation]
      -> UNE position par lancement (un seul micro : Louis le déplace entre deux lancements et dit « en place »).
         Pour chaque variante : plan écrit sorties mutées (dbx_plan.appliquer), chaque voie seule, alignement à
@@ -55,7 +55,7 @@ import calc_systeme as cs          # noqa: E402
 import coupures                    # noqa: E402
 import dbx_description as dd       # noqa: E402
 import reglages_pile as rp         # noqa: E402
-from banc import (P, NIVEAU_DEPART_DBFS, NIVEAU_PLAFOND_DBFS, PAS_DELAI_MS, Annule, MoteurREW,  # noqa: E402,F401
+from banc import (P, Annonce, NIVEAU_DEPART_DBFS, NIVEAU_PLAFOND_DBFS, PAS_DELAI_MS, Annule, MoteurREW,  # noqa: E402,F401
                   MoteurSimule, Seance, charger_etat, chemins_suivis as _chemins_suivis, cles_raccords as _cles_raccords,
                   ecrire_delai, lire_positions, ouvrir, retablir, retablissement_complet, sauver_etat,
                   _ecrire_atomique)
@@ -129,7 +129,8 @@ def preparer(chemin_config: str, style: str | None, positions: list[dict], n_var
 
 
 def mesurer_position(dossier: str | Path, nom_position: str, d, moteur_pour, journal, ip: str,
-                     protection_validee: bool, signal_autorise: bool, niveau_max: float = -12.0) -> dict:
+                     protection_validee: bool, signal_autorise: bool, niveau_max: float = -12.0,
+                     appliquer: bool = False) -> dict:
     """Mesure toutes les variantes à UNE position. `moteur_pour(position, sorties)` crée le moteur (REW ou simulé).
     Garde-fous : banc.Seance (contrôles, instantané, re-mute sur toute erreur, rétablissement)."""
     import dbx_plan
@@ -142,7 +143,7 @@ def mesurer_position(dossier: str | Path, nom_position: str, d, moteur_pour, jou
     plans = {v["id"]: json.loads(Path(v["plan"]).read_text(encoding="utf-8")) for v in etat["variantes"]}
     sorties = {x["sortie"]: x["nom"] for x in next(iter(plans.values()))["voies"]}
     seance = Seance(d, moteur_pour(pos, sorties), dossier, etat, pos, list(plans.values()), journal, ip, niveau_max,
-                    protection_validee, signal_autorise, lambda e: sauver_etat(dossier, e))
+                    protection_validee, signal_autorise, lambda e: sauver_etat(dossier, e), appliquer=appliquer)
     premiere = not etat["positions_faites"]
     with seance as s:
         for v in etat["variantes"]:
@@ -298,6 +299,7 @@ def main():
     a2.add_argument("--niveau-max", type=float, default=-12.0)
     a2.add_argument("--protection-validee", action="store_true")
     a2.add_argument("--signal-autorise", action="store_true")
+    a2.add_argument("--appliquer", action="store_true", help="sans lui : annonce de ce qui serait écrit, rien n'est touché")
     a2.add_argument("--simulation", action="store_true", help="acoustique simulée (aucun son), écritures réelles")
     a2.add_argument("--erreur-sim", default="", help="simulation : décalages de centre acoustique, ex. SUB:12,MEDIUM:-6 (cm)")
     a3 = sub.add_parser("conclure")
@@ -323,7 +325,7 @@ def main():
                 else:
                     moteur_pour = lambda pos, sorties: MoteurREW(a.rew)  # noqa: E731
                 r = mesurer_position(a.dossier, a.position, d, moteur_pour, dbx_hiqnet.journaliser, a.ip,
-                                     a.protection_validee, a.signal_autorise, a.niveau_max)
+                                     a.protection_validee, a.signal_autorise, a.niveau_max, a.appliquer)
             ok = retablissement_complet(r)
             print(f"Position {a.position} : {r['mesures']} mesures · sorties mutées · rétablissement "
                   f"{'complet' if ok else 'INCOMPLET : ' + str(r['retablissement'])} · instantané {r['instantane']}")
@@ -339,6 +341,9 @@ def main():
             out = conclure(a.dossier)
             print(rapport(out))
             print(f"Recalage proposé : {out['recalage_propose']} (preset_auto --recaler, accord de Louis)")
+    except Annonce as e:
+        print(e)
+        sys.exit(0)
     except (ValueError, Annule, dd.SortiesNonMutees, OSError) as e:
         sys.exit(f"REFUS / ARRÊT : {e}")
 

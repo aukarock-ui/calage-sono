@@ -104,7 +104,7 @@ def _lancer(dos, pos, port, erreurs=None, **kw):
     with dbx_hiqnet.Dbx("127.0.0.1", port, "administrator") as d:
         cfg = ec.charger_etat(dos)["config"]
         moteur = kw.pop("moteur", None) or (lambda p, s: ec.MoteurSimule(d, cfg, s, p, erreurs or {}))
-        args = dict(protection_validee=True, signal_autorise=False, niveau_max=-12.0) | kw
+        args = dict(protection_validee=True, signal_autorise=False, niveau_max=-12.0, appliquer=True) | kw
         return ec.mesurer_position(dos, pos, d, moteur, dbx_hiqnet.journaliser, "127.0.0.1", **args)
 
 
@@ -149,7 +149,7 @@ def test_erreur_en_cours_remute_et_retablit(essai, machine):
             origine.update({ch: d.get(ch) for ch in ec._chemins_suivis(
                 [json.loads(Path(v["plan"]).read_text(encoding="utf-8")) for v in ec.charger_etat(essai)["variantes"]])})
             ec.mesurer_position(essai, "P1", d, lambda p, s: Panne(d, cfg, s, p), dbx_hiqnet.journaliser, "127.0.0.1",
-                                True, False, -12.0)
+                                True, False, -12.0, appliquer=True)
     A = faux_venu360.ARBRE[_K("OutputGains/SV")]
     assert all(A[f"Channel_{c}_Mute"] == "On" for c in range(1, 7))            # 6 sorties mutées
     with dbx_hiqnet.Dbx("127.0.0.1", machine, "administrator") as d:
@@ -253,7 +253,7 @@ def test_simulation_ne_demute_jamais_la_machine(essai, machine):
     cfg = ec.charger_etat(essai)["config"]
     with dbx_hiqnet.Dbx("127.0.0.1", machine, "administrator") as d:
         r = ec.mesurer_position(essai, "P1", d, lambda p, s: Espion(d, cfg, s, p), dbx_hiqnet.journaliser,
-                                "127.0.0.1", True, False, -12.0)
+                                "127.0.0.1", True, False, -12.0, appliquer=True)
     assert vus and all(etat == ("On",) * 6 for etat in vus)                  # muette pendant CHAQUE mesure
     assert r["mesures"] > 10 and ec.retablissement_complet(r)
 

@@ -7,7 +7,7 @@ par pas bornés, remesure. Les écarts mesurés reviennent dans le calcul (prese
   1. preparer <config> --style techno --positions P1:20x1.7,P2:20x1.2,P3:10x1.7 [--accepter-non-verifie]
      [--eq-generale <yaml>] [--etapes gains,delais,phase,eq-voies,eq-generale]
      -> plan de départ (preset_auto, v2), dossier mesures/optim-<sys>-<date>/. Aucun accès machine, aucun son.
-  2. mesurer <dossier> --position P1 --ip … --protection-validee --signal-autorise [--niveau-max] [--simulation]
+  2. mesurer <dossier> --position P1 --ip … --protection-validee --signal-autorise --appliquer [--niveau-max] [--simulation]
      -> 1re position (P1, ONAX) : plan écrit sorties mutées, puis GAINS (niveau de chaque voie seule dans sa bande
         contre la cible du style, ±3 dB par écriture, gains ≤ 0), DÉLAIS (banc.Seance.aligner), PHASE (aux raccords
         à perte de somme > 0,5 dB : rotation de la voie basse choisie avec le modèle du banc électrique, ±45° par
@@ -253,9 +253,9 @@ def _plan(etat):
     return json.loads(Path(etat["plan"]).read_text(encoding="utf-8"))
 
 
-def _seance(d, moteur, dossier, etat, pos, plan, journal, ip, niveau_max, prot, sig):
+def _seance(d, moteur, dossier, etat, pos, plan, journal, ip, niveau_max, prot, sig, appliquer):
     s = Seance(d, moteur, dossier, etat, pos, [plan], journal, ip, niveau_max, prot, sig,
-               lambda e: sauver_etat(dossier, e), etiquette="OPTIM")
+               lambda e: sauver_etat(dossier, e), etiquette="OPTIM", appliquer=appliquer)
     s.suivis = sorted(set(s.suivis) | set(suivis_supplementaires(plan)))
     return s
 
@@ -363,7 +363,7 @@ def etape_phase(s: Seance, d, plan, etat, solos, tag, journal, ip) -> dict:
 
 
 def mesurer_position(dossier, nom_position: str, d, moteur_pour, journal, ip: str, protection_validee: bool,
-                     signal_autorise: bool, niveau_max: float = -12.0) -> dict:
+                     signal_autorise: bool, niveau_max: float = -12.0, appliquer: bool = False) -> dict:
     etat = charger_etat(dossier)
     pos = next((p for p in etat["positions"] if p["nom"] == nom_position), None)
     if pos is None:
@@ -376,7 +376,7 @@ def mesurer_position(dossier, nom_position: str, d, moteur_pour, journal, ip: st
     sorties = {x["sortie"]: x["nom"] for x in plan["voies"]}
     premiere = not etat["positions_faites"]
     with _seance(d, moteur_pour(pos, sorties), dossier, etat, pos, plan, journal, ip, niveau_max,
-                 protection_validee, signal_autorise) as s:
+                 protection_validee, signal_autorise, appliquer) as s:
         reappliquer(d, plan, etat["reglages"] if not premiere else
                     {"gains": {}, "delais": {}, "phase": {}, "peq_voies": {}, "peq_entree": []}, journal, ip)
         tag = f"{nom_position}"
@@ -457,7 +457,7 @@ def calculer_eq_generale(mesures: list[dict], style: str, bosses_autorisees: boo
 
 
 def egaliser(dossier, d, moteur_pour, journal, ip: str, protection_validee: bool, signal_autorise: bool,
-             niveau_max: float = -12.0) -> dict:
+             niveau_max: float = -12.0, appliquer: bool = False) -> dict:
     import dbx_plan
     etat = charger_etat(dossier)
     if not etat["positions_faites"]:
@@ -471,7 +471,7 @@ def egaliser(dossier, d, moteur_pour, journal, ip: str, protection_validee: bool
     lire = lambda nom: json.loads((rep / f"{nom}.json").read_text(encoding="utf-8"))  # noqa: E731
     bosses = dbx_plan.chaine_sortie() == "peq_avant_limiteur"
     with _seance(d, moteur_pour(pos, sorties), dossier, etat, pos, plan, journal, ip, niveau_max,
-                 protection_validee, signal_autorise) as s:
+                 protection_validee, signal_autorise, appliquer) as s:
         reappliquer(d, plan, etat["reglages"], journal, ip)
         tag = f"{pos['nom']}_eq"
         bilan = {"bosses_autorisees": bosses}
@@ -638,6 +638,7 @@ def main():
         x.add_argument("--niveau-max", type=float, default=-12.0)
         x.add_argument("--protection-validee", action="store_true")
         x.add_argument("--signal-autorise", action="store_true")
+        x.add_argument("--appliquer", action="store_true", help="sans lui : annonce de ce qui serait écrit, rien n'est touché")
         x.add_argument("--simulation", action="store_true")
     a3 = sub.add_parser("conclure")
     a3.add_argument("dossier")
@@ -658,10 +659,10 @@ def main():
                     moteur_pour = lambda pos, so: banc.MoteurREW(a.rew)  # noqa: E731
                 if a.cmd == "mesurer":
                     r = mesurer_position(a.dossier, a.position, d, moteur_pour, dbx_hiqnet.journaliser, a.ip,
-                                         a.protection_validee, a.signal_autorise, a.niveau_max)
+                                         a.protection_validee, a.signal_autorise, a.niveau_max, a.appliquer)
                 else:
                     r = egaliser(a.dossier, d, moteur_pour, dbx_hiqnet.journaliser, a.ip, a.protection_validee,
-                                 a.signal_autorise, a.niveau_max)
+                                 a.signal_autorise, a.niveau_max, a.appliquer)
             ok = banc.retablissement_complet(r)
             print(f"{a.cmd} : {r['mesures']} mesures · sorties mutées · rétablissement "
                   f"{'complet' if ok else 'INCOMPLET : ' + str(r['retablissement'])} · instantané {r['instantane']}")
@@ -672,6 +673,9 @@ def main():
         else:
             out = conclure(a.dossier)
             print(rapport(out))
+    except banc.Annonce as e:
+        print(e)
+        sys.exit(0)
     except (ValueError, Annule, dd.SortiesNonMutees, OSError) as e:
         sys.exit(f"REFUS / ARRÊT : {e}")
 

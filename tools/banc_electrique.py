@@ -2,7 +2,7 @@
 """
 banc_electrique.py — Caractérisation ÉLECTRIQUE du VENU360 (boucle sortie → entrée de l'interface, REW), sans son.
 
-  banc_electrique.py <config> --sortie N --ip … --amplis-coupes --signal-autorise --protection-validee
+  banc_electrique.py <config> --sortie N --ip … --amplis-coupes --signal-autorise --protection-validee --appliquer
                      [--rew localhost:4735] [--niveau -20] [--seuil-test -40] [--enregistrer] [--simulation]
 
 Câblage : sortie N du VENU360 -> entrée de mesure de l'interface ; REW avec référence de temps en boucle.
@@ -140,7 +140,8 @@ def ordre_chaine(lim_bas: dict, lim_plus_bas: dict, bosse: dict, plat_bas: dict)
 
 # ---------------------------------------------------------------- séance
 def lancer(d, moteur, chemin_config: str, n: int, journal, ip: str, amplis_coupes: bool, signal_autorise: bool,
-           protection_validee: bool, niveau: float = -20.0, seuil_test: float = -40.0, dossier=None) -> dict:
+           protection_validee: bool, niveau: float = -20.0, seuil_test: float = -40.0, dossier=None,
+           appliquer: bool = False) -> dict:
     import calc_systeme as cs
     import dbx_hiqnet
     if not amplis_coupes:
@@ -157,13 +158,18 @@ def lancer(d, moteur, chemin_config: str, n: int, journal, ip: str, amplis_coupe
     voie = next((v["nom"] for v in cfg["voies"] if int(v.get("sortie") or 0) == n), None)
     if voie is None:
         raise ValueError(f"aucune voie de {chemin_config} sur la sortie {n} (nécessaire au contrôle du plafond)")
-    dossier = Path(dossier or RACINE / "mesures" / f"banc-electrique-{dt.datetime.now():%Y%m%d-%H%M}")
-    dossier.mkdir(parents=True, exist_ok=True)
     suivis = chemins(n)
-    origine = {ch: (d.get(ch) or "").strip() for ch in suivis}
     seuil0 = _seuil(d, n)
     plafond = cs.plafond_limiteur(chemin_config, voie)["seuil"]
     seuil_test = min(seuil_test, seuil0, plafond)  # jamais au-dessus du seuil actuel ni du plafond calculé
+    if not appliquer:
+        raise banc.Annonce(banc.annonce(ip, suivis, f"le banc électrique (sortie {n}, {voie} ; filtres Out, phase "
+                                                    f"0…−180°, gain −6 dB, délai 1 ms, limiteur de test {seuil_test:g} "
+                                                    f"puis {seuil_test - 10:g} dB, bosse PEQ +6 dB à 1 kHz)")
+                           .replace(f"; {banc.PAS_ANNONCE}", "; réglages de TEST, amplis coupés"))
+    dossier = Path(dossier or RACINE / "mesures" / f"banc-electrique-{dt.datetime.now():%Y%m%d-%H%M}")
+    dossier.mkdir(parents=True, exist_ok=True)
+    origine = {ch: (d.get(ch) or "").strip() for ch in suivis}
     res = {"simulation": bool(moteur.simule),"date": dt.date.today().isoformat(), "sortie": n, "voie": voie, "niveau_dbfs": niveau,
            "firmware": "à relever (VENU360 > Utility > System Info)", "source": "banc_electrique.py, boucle électrique"}
     try:
@@ -339,6 +345,7 @@ def main():
     ap.add_argument("--amplis-coupes", action="store_true")
     ap.add_argument("--signal-autorise", action="store_true")
     ap.add_argument("--protection-validee", action="store_true")
+    ap.add_argument("--appliquer", action="store_true", help="sans lui : annonce de ce qui serait écrit, rien n'est touché")
     ap.add_argument("--enregistrer", action="store_true", help="copie le résultat dans data/protocoles/venu360_phase.yaml")
     ap.add_argument("--simulation", action="store_true", help="boucle simulée (HYPOTHÈSE rotation constante)")
     a = ap.parse_args()
@@ -348,7 +355,7 @@ def main():
             moteur = (MoteurElectriqueSimule(d, a.sortie, banc.PHASE_HYPOTHESE) if a.simulation
                       else banc.MoteurREW(a.rew))
             r = lancer(d, moteur, a.config, a.sortie, dbx_hiqnet.journaliser, a.ip, a.amplis_coupes,
-                       a.signal_autorise, a.protection_validee, a.niveau, a.seuil_test)
+                       a.signal_autorise, a.protection_validee, a.niveau, a.seuil_test, appliquer=a.appliquer)
         print(f"Banc électrique sortie {a.sortie} : phase « {r['phase']['type']} » · chaîne {r['chaine_sortie']}"
               f"{' (' + r['motif'] + ')' if r.get('motif') else ''} · contrôles {r['controles']}")
         print(f"Résultat : {r['dossier']}\\resultat.yaml · rétablissement "
@@ -359,6 +366,9 @@ def main():
             print(f"Enregistré : {enregistrer(r)}")
         if not banc.retablissement_complet(r):
             sys.exit("RÉTABLISSEMENT INCOMPLET : sorties laissées mutées ; vérifier avant de démuter.")
+    except banc.Annonce as e:
+        print(e)
+        sys.exit(0)
     except (ValueError, Annule, dd.SortiesNonMutees, OSError) as e:
         sys.exit(f"REFUS / ARRÊT : {e}")
 
