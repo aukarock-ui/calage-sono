@@ -67,6 +67,13 @@ crossover:
   HIGH:   {hpf: "LR24 1600 Hz", lpf: null}
   note: "HPF SUB obligatoire (bass-reflex) : accord non mesuré -> à fixer d'après excursion_br / mesure."
 
+# Plages supposées tant que l'accord (impédance) et le volume net ne sont pas mesurés : preset_auto vérifie le HPF
+# (excursion_br) sur TOUTE la plage. SUB : caisse 135×71×63 cm (≈ 600 L brut, ~400-550 L net estimé), accord inconnu.
+hypotheses_caisse:
+  SUB: {accord_hz: [28, 40], volume_l: [400, 550]}
+
+style_defaut: techno
+
 caisses:
   SUB:    {l: 135, p: 71, h: 63, note: "couché"}
   KICK:   {l: 69,  p: 51, h: 121}
@@ -103,4 +110,7 @@ reglages_calcules:
     MEDIUM: -2.0
     KICK: -6.0
     SUB: 0.0        # voicing bass-heavy de Louis non appliqué : à décider à la mesure / à la console
-  mesure: {date: null, ecarts: null}
+  gains_style:      # preset_auto --style techno (profil « exigeant », +16 dB vers 55 Hz) ; écrits case 27 « CKI 4V Techno » le 24/11/2026
+    techno: {HIGH: -19.9, MEDIUM: -16.3, KICK: -12.6, SUB: 0.0}
+  puissance_techno: "voie limitante SUB ; plateau ≈ 93 dB à 20 m contre 108 dB(A) visés (−15 dB, une pile, champ libre)"
+  mesure: {date: null, ecarts: null}   # les écarts mesurés vont dans ma-sono-cki.recalage.yaml (preset_auto --recaler)

@@ -101,9 +101,45 @@ def distance_critique_m(volume_m3: float, rt60_s: float, q: float) -> float:
     return 0.057 * math.sqrt(q * volume_m3 / rt60_s)
 
 
+def chemin_recalage(chemin_config) -> Path:
+    """Fichier des corrections mesurées, à côté de la config : <nom>.recalage.yaml (écrit par preset_auto --recaler)."""
+    p = Path(chemin_config)
+    return p.with_name(p.stem + ".recalage.yaml")
+
+
+CHAMPS_RECALAGE_VOIE = {"gain_canal_db", "accord_event_hz", "correction_sensibilite_db"}
+
+
+def fusionner_recalage(cfg: dict, rec: dict | None) -> dict:
+    """Applique les corrections mesurées : `voies.<NOM>` (champs de la voie), `geometrie_pile.<NOM>`. L'historique
+    reste dans le fichier de recalage. Une voie inconnue est une erreur (faute de frappe = correction perdue)."""
+    if not rec:
+        return cfg
+    voies = {v["nom"]: v for v in cfg.get("voies", [])}
+    for nom, champs in (rec.get("voies") or {}).items():
+        if nom not in voies:
+            raise ValueError(f"recalage : voie « {nom} » absente de la config ({', '.join(voies)})")
+        interdits = set(champs or {}) - CHAMPS_RECALAGE_VOIE
+        if interdits:      # HP, câblage, ampli, type… : se changent dans la config elle-même, pas par une mesure
+            raise ValueError(f"recalage : voies.{nom} : champs non recalables {sorted(interdits)} "
+                             f"(autorisés : {sorted(CHAMPS_RECALAGE_VOIE)})")
+        voies[nom].update(champs or {})
+    for nom, g in (rec.get("geometrie_pile") or {}).items():
+        if nom not in voies:
+            raise ValueError(f"recalage : geometrie_pile.{nom} : voie absente de la config")
+        if set(g or {}) - {"profondeur_cm", "hauteur_cm"}:
+            raise ValueError(f"recalage : geometrie_pile.{nom} : seuls profondeur_cm / hauteur_cm sont recalables")
+        cfg.setdefault("geometrie_pile", {}).setdefault(nom, {}).update(g or {})
+    cfg["_recalage"] = {"date": rec.get("date"), "n_mesures": len(rec.get("historique") or [])}
+    return cfg
+
+
 def charger(chemin_config: str):
     mat = yaml.safe_load((RACINE / "data" / "materiel.yaml").read_text(encoding="utf-8"))
     cfg = yaml.safe_load(Path(chemin_config).read_text(encoding="utf-8"))
+    rec = chemin_recalage(chemin_config)
+    if rec.exists():
+        cfg = fusionner_recalage(cfg, yaml.safe_load(rec.read_text(encoding="utf-8")))
     return mat, cfg
 
 

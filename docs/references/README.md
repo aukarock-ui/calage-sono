@@ -13,6 +13,12 @@ Ce dossier contient des documents de référence téléchargés gratuitement aup
 | `Leach_Intro_Electroacoustics_errata.pdf` | W. M. Leach, Georgia Tech, errata du livre *Introduction to Electroacoustics and Audio Amplifier Design* | Corrections des équations bass-reflex du chapitre 8, à consulter si on travaille avec le livre |
 | `Keele_2017_True_Bass_Large_Space_audioXpress.pdf` (11 Mo, **PC seulement** : trop gros pour le connecteur Drive) | D. B. Keele Jr., « True Bass in a Large Space », *audioXpress*, sept. 2017 | Simulation complète d'une grosse caisse bass-reflex (EV 30W, TL303) : excursion, puissance, comparaison avec une caisse close moderne |
 
+## Profils de programme (courbes cibles) — utilisés par `tools/reglages_pile.py` (STYLES)
+
+| Fichier | Source | Ce qu'on en retient |
+|---|---|---|
+| `profils_programme_system_response_p34.jpg` | Diapo « Loudspeaker system — System response », p. 34, L-Acoustics (capture fournie par Louis le 24/11/2026, éditeur confirmé par Louis) | Performance d'un système = niveau + réponse, en moyenne dans la salle. Light 99 dB(A) (+2 dB grave), Medium 102 (+10 dB), Heavy 105 (+13 dB), Demanding 108 dB(A) (+16 dB vers 55 Hz, plateau dès ~1 kHz). Lecture du graphe à ±1 dB |
+
 ## Ouvrages fournis par Louis (Drive « Fichiers son » et envoi direct ; pas dans le dépôt)
 
 | Ouvrage | Ce qui a été lu | Ce qu'on en retient dans le kit |

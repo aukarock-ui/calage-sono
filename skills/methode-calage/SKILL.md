@@ -172,6 +172,20 @@ HP débranchés (ou charge factice), limiteurs désactivés le temps du test, si
 en sortie du processeur, multimètre TRMS aux bornes : gain = 20·log10(V_bornes / V_entrée).
 
 ## Courbes cibles par style
+**Profils chiffrés** (L-Acoustics, diapo « System response », p. 34, fournie par Louis ;
+`docs/references/profils_programme_system_response_p34.jpg`) — niveau MOYEN dans la salle, plateau plat au-dessus de
+~1 kHz, grave relevé par rapport au plateau :
+
+| Profil | Programme | Plateau | Grave (≈ 55 Hz) | Plateau atteint vers |
+|---|---|---|---|---|
+| leger | parole, conférence | 99 dB(A) | +2 dB | 500 Hz |
+| moyen | jazz, acoustique | 102 dB(A) | +10 dB | 650 Hz |
+| lourd | groupe live, rock, hip-hop | 105 dB(A) | +13 dB | 750 Hz |
+| exigeant | DJ, techno, dub | 108 dB(A) | +16 dB | 1,1 kHz |
+
+`reglages_pile.STYLES` / `PROFILS` les portent (lecture du graphe à ±1 dB) ; `preset_auto --style` en tire les gains de
+sortie et compare le plateau atteignable au niveau du profil (« puissance » : voie limitante + réserve des autres).
+Repères qualitatifs par style, à affiner à la mesure et à l'oreille :
 - PUNK : médium agressif, kick présent non dominant, voix 1–4 kHz intelligible, grave contrôlé.
 - MÉTAL : kick percutant, 200–400 Hz propre, HF clair sans stridence.
 - HIP-HOP : sub profond maîtrisé, 80–120 Hz propre, voix 2–5 kHz ultra lisible.
@@ -180,6 +194,27 @@ en sortie du processeur, multimètre TRMS aux bornes : gain = 20·log10(V_bornes
 - FREE/TEKNO : impact physique, médium brut, kick agressif.
 - NOISE : large dynamique, limiteurs permissifs (dans les limites de sécurité).
 Les préférences propres à un système (ex. MA Sono : réglages fixes, voicing bass-heavy) sont dans sa config, champ `preferences`.
+
+## Chemin rapide (pile à composants, n'importe quelle config)
+1. Config complète (skill `nouveau-systeme`) : voies, amplis, `crossover`, `geometrie_pile`, `hypotheses_caisse`
+   (accord/volume supposés tant que non mesurés), `style_defaut`.
+2. `python tools/preset_auto.py data/configs/<sys>.yaml --style <style> [--distance D]` → plan neutre
+   `plans/<sys>-<style>-reglages.json` + feuille `.md`. Il enchaîne calc_systeme (seuils), excursion_br (HPF des BR
+   sur toute la plage d'hypothèses, HPF minimal proposé s'il ne tient pas), reglages_pile (temps Proel, délais,
+   gains + profil, puissance). Code 2 = BLOQUANT (DANGER, excursion, réglage de sortie non confirmé, filtre absent
+   non déclaré « aucun », HPF bass-reflex non vérifiable…) : on corrige. HPF non vérifiable faute d'accord/volume :
+   `--accepter-non-verifie` seulement sur décision de Louis (noté dans le plan).
+3. Annoncer le plan à Louis (feuille + alertes + hypothèses), obtenir le « go » et l'accord protections, puis :
+   dbx VENU360 → `dbx_hiqnet.py appliquer-plan <ip> <plan.json> --case N --nom "…" --verifier --appliquer --protection-validee`
+   (topologie à sorties indépendantes exigée, mute relu, protections d'abord, relecture, stockage, rappel + relecture) ;
+   autre processeur → saisir la feuille `.md`, relire à l'écran.
+4. Mesures (skill `mesure-acoustique`) : délais IR par voie, gains ampli au voltmètre, accords par impédance,
+   écart de niveau par voie → `mesures/<sys>-<date>.yaml`.
+5. `python tools/preset_auto.py --recaler data/configs/<sys>.yaml mesures/<sys>-<date>.yaml` → corrections dans
+   `<sys>.recalage.yaml` (lu par tous les outils ; seuls gain_canal_db, accord, correction de sensibilité et
+   géométrie y sont admis), historique des écarts calcul/mesure. Un gain mesuré qui RELÈVE un plafond exige
+   `--protection-validee` ; un écart de gain > 3 dB exige `--forcer-gain` (calibre ? sélecteur ?). Régénérer le plan (étape 2)
+   et réappliquer (pas max : ±3 dB, ±0,5 ms par écriture hors construction de preset). Noter les écarts dans ETAT.
 
 ## Appliquer les réglages
 - Processeur pilotable par le kit (voir `docs/processeurs.md`) : écriture réseau, lecture seule par défaut,

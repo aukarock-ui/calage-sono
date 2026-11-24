@@ -40,3 +40,17 @@ crossover:
 # Dimensions extérieures (cm) de chaque ÉLÉMENT tel que posé dans une pile : l = largeur face avant, p = profondeur, h = hauteur.
 caisses:
   SUB: {l: null, p: null, h: null}
+
+# --- Pour preset_auto.py (plan de réglages automatique) ---
+# Géométrie de pile (délais calculés) : par voie, centre acoustique supposé. profondeur_cm = derrière la face avant de la
+# pile (retrait du HP, longueur de pavillon + trajet dans le moteur) ; hauteur_cm = au-dessus du sol. HYPOTHÈSES jusqu'à l'IR.
+geometrie_pile:
+  SUB: {profondeur_cm: null, hauteur_cm: null}
+
+# Caisses bass-reflex dont l'accord/le volume ne sont pas mesurés : plages supposées, le HPF est vérifié sur toute la plage.
+hypotheses_caisse:
+  SUB: {accord_hz: null, volume_l: null}     # ex. {accord_hz: [28, 40], volume_l: [400, 550]}
+
+style_defaut: null    # plat | leger | moyen | lourd | exigeant | techno | reggae-dub | hip-hop | rock | jazz | parole
+# Polarité d'une voie : champ `polarite: inversee` dans la voie (défaut normale).
+# Corrections mesurées : <nom>.recalage.yaml à côté de ce fichier (écrit par preset_auto --recaler, lu par tous les outils).

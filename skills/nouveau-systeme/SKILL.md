@@ -25,7 +25,12 @@ Interdit : compléter une spec « de mémoire » ou par analogie avec un modèle
 3. **Processeur** : modèle, firmware, réglage de niveau de sortie, unité des seuils ; pilotable ? (`docs/processeurs.md`).
 4. **Crossover / presets en service** s'ils existent déjà (relevé écran ou export) → champ `crossover`.
 5. **Dimensions** de chaque élément tel que posé (l × p × h, cm) → champ `caisses` (sert au plan 3D).
-6. **Composants absents de la bibliothèque** : demander la fiche PDF, relever les valeurs, les ajouter avec la source.
+6. **Géométrie de pile** (pour les délais calculés) → `geometrie_pile` : hauteur du centre de chaque HP au-dessus
+   du sol, retrait du HP derrière la face avant, longueur des pavillons ; une photo de la pile aide
+   (`data/configs/photos/`). Centres acoustiques = hypothèses jusqu'à l'IR.
+7. **Caisses bass-reflex** : accord (mesure d'impédance) et volume net si connus ; sinon une plage supposée →
+   `hypotheses_caisse` (le HPF est vérifié sur toute la plage). **Style par défaut** → `style_defaut`.
+8. **Composants absents de la bibliothèque** : demander la fiche PDF, relever les valeurs, les ajouter avec la source.
 
 ## Contrôles avant de déclarer la config prête
 - `python tools/calc_systeme.py data/configs/<nom>.yaml` : aucune alerte « absent de la bibliothèque » ; impédances

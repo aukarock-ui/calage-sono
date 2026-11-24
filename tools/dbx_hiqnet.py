@@ -37,6 +37,8 @@ Usage :
   python tools/dbx_hiqnet.py presets  <ip>
   python tools/dbx_hiqnet.py rappel   <ip> <n> [--appliquer --protection-validee]  # Load : instantané complet avant
   python tools/dbx_hiqnet.py stocker  <ip> <n> [--appliquer] [--nom N]               # JSON-RPC Store : instantané complet avant
+  python tools/dbx_hiqnet.py appliquer-plan <ip> plans/<x>-reglages.json [--case N --nom N --verifier --demuter] --appliquer --protection-validee
+                                         # plan de tools/preset_auto.py, écrit par tools/dbx_plan.py (protections d'abord)
   python tools/dbx_hiqnet.py rpc      <ip> <Methode> [params...]             # méthodes de LECTURE seulement (liste blanche)
 Carte complète des paramètres VENU360 : data/venu360_parametres.yaml (issue de l'appli v2.0.7).
 """
@@ -445,10 +447,15 @@ def main() -> None:
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["decouvrir", "info", "get", "ls", "arbre", "carte", "instantane", "diff", "ecouter", "set",
-                                    "presets", "rappel", "stocker", "rpc", "decrire", "restaurer", "autotest", "topologie"])
+                                    "presets", "rappel", "stocker", "rpc", "decrire", "restaurer", "autotest", "topologie",
+                                    "appliquer-plan"])
     ap.add_argument("--signal-valide", action="store_true",
                     help="Louis a confirmé niveau sûr et personne exposé : autorise l'écriture du générateur (≤ -30 dB)")
     ap.add_argument("--nom", help="stocker : nom donné au preset (sinon il garde le nom du preset chargé)")
+    ap.add_argument("--case", type=int, help="appliquer-plan : case où stocker le preset (1-100), avec --nom")
+    ap.add_argument("--demuter", action="store_true", help="appliquer-plan : démuter les sorties utilisées si tout est conforme")
+    ap.add_argument("--ecraser", action="store_true", help="appliquer-plan : remplacer une case qui porte un autre nom")
+    ap.add_argument("--verifier", action="store_true", help="appliquer-plan : rappeler la case stockée et tout relire")
     ap.add_argument("--blocs", help="autotest : blocs à tester, séparés par des virgules (ex. GEQ1,Afs1,Limiter)")
     ap.add_argument("args", nargs="*")
     ap.add_argument("--mdp", default=None,
@@ -480,7 +487,7 @@ def main() -> None:
             print(f"{k}\n    avant : {x}\n    après : {y}")
         return
 
-    besoin = {"rappel": 2, "stocker": 2, "rpc": 2, "set": 3, "get": 2, "ls": 2, "ecouter": 2}.get(a.cmd, 1)
+    besoin = {"appliquer-plan": 2, "rappel": 2, "stocker": 2, "rpc": 2, "set": 3, "get": 2, "ls": 2, "ecouter": 2}.get(a.cmd, 1)
     if len(a.args) < besoin:
         sys.exit(f"{a.cmd} : {besoin} argument(s) attendu(s) (voir --help).")
     # Refus décidables sans l'appareil : AVANT toute connexion (aucune trame ne part pour une demande refusée).
@@ -495,6 +502,32 @@ def main() -> None:
         if a.cmd == "rappel" and not a.protection_validee:
             sys.exit("REFUS : un rappel de preset modifie aussi les PROTECTIONS (limiteurs, HPF, mutes). "
                      "Validation explicite de Louis requise (--protection-validee).")
+    plan_ecr = None
+    if a.cmd == "appliquer-plan":
+        import dbx_plan
+        if a.nom and not re.fullmatch(r"[A-Za-z0-9 _.+\-()/']{1,50}", a.nom):
+            sys.exit("REFUS : nom de preset : 1 à 50 caractères (lettres sans accent, chiffres, espace, _ . + - ( ) / ').")
+        if a.case is not None and not 1 <= a.case <= 100:
+            sys.exit("REFUS : --case : 1 à 100.")
+        if (a.verifier or a.nom) and a.case is None:
+            sys.exit("REFUS : --nom / --verifier demandent --case (case où stocker le preset).")
+        try:
+            plan = json.loads(Path(a.args[1]).read_text(encoding="utf-8"))
+            plan_ecr, notes = dbx_plan.ecritures(plan, a.depasser_plafond)
+        except (OSError, ValueError, KeyError) as e:
+            sys.exit(f"REFUS : {e}")
+        if not a.protection_validee:
+            sys.exit("REFUS : le plan écrit des PROTECTIONS (limiteurs, filtres, mutes). "
+                     "Validation explicite de Louis requise (--protection-validee).")
+        if not a.appliquer:
+            print(f"SIMULATION — {plan['systeme']} · style {plan['style']} · {len(plan_ecr)} écritures "
+                  "(protections d'abord), sorties mutées pendant l'opération :")
+            for n_ in notes:
+                print("  " + n_)
+            for ch, val, voie, prot in plan_ecr:
+                print(f"  {'[P] ' if prot else '    '}{voie:7} {ch} = {val}")
+            print("Ajouter --appliquer" + (f" ; stockage case {a.case} {a.nom!r}" if a.case else "") + ".")
+            return
     if a.cmd == "rpc" and a.args[1] not in RPC_LECTURE:      # liste blanche : la commande rpc ne fait que lire
         sys.exit(f"REFUS : {a.args[1]} n'est pas une méthode de lecture connue ({', '.join(sorted(RPC_LECTURE))}). "
                  "Rappel et stockage de presets : commandes « rappel » et « stocker » (instantané automatique) ; "
@@ -530,6 +563,74 @@ def main() -> None:
             print(f"Écrit : {out} ({len(desc)} paramètres décrits, dont {n_ecr} réglages écrivables)")
         elif a.cmd == "topologie":
             print(json.dumps(dd.topologie(d), ensure_ascii=False, indent=1))
+        elif a.cmd == "appliquer-plan":
+            import dbx_plan
+            try:
+                snap = instantane_avant(d, ip, "avant-plan")
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}")
+            print(f"Instantané avant écriture : {snap}")
+            try:
+                r = dbx_plan.appliquer(d, plan, journaliser, ip, depasser_plafond=a.depasser_plafond)
+            except ValueError as e:
+                sys.exit(f"REFUS : {e}. Rien n'a été écrit.")
+            except dd.SortiesNonMutees as e:
+                sys.exit(f"REFUS : {e}. Rien n'a été écrit ; certaines sorties ont pu rester mutées (état d'avant : {snap}).")
+            print(f"{r['ecrits']}/{len(plan_ecr)} écritures conformes · {len(r['echecs'])} échec(s) · {len(r['refus'])} refus · "
+                  f"{len(r['derives'])} dérive(s) · sorties mutées")
+            for e in r["echecs"] + r["refus"] + r["derives"]:
+                print(f"  ✗ {e}")
+            if r["arret"]:
+                print(f"  ARRÊT : {r['arret']} — sorties laissées MUTÉES.")
+            if not r["conforme"]:
+                print(f"Pour revenir à l'état d'avant : restaurer {ip} {snap} --appliquer --protection-validee")
+                sys.exit(1)
+
+            def echec(msg):
+                """Tout échec après les écritures : re-muter les 6 sorties (relu) avant de sortir."""
+                try:
+                    dd.muter_et_verifier(d)
+                    etat = "6 sorties re-mutées (relu)"
+                except dd.SortiesNonMutees as e2:
+                    etat = f"RE-MUTE NON CONFIRMÉ : {e2} — couper les amplis"
+                journaliser(f"ECHEC plan sur {ip} : {msg} — {etat}")
+                sys.exit(f"ÉCHEC : {msg}. {etat}. État d'avant : {snap}")
+
+            if a.demuter:
+                ok, relu = dbx_plan.demuter_utilisees(d, plan)
+                journaliser(f"DBX PLAN {ip} démute des sorties utilisées : {'OK' if ok else 'NON CONFORME'} {relu}")
+                if not ok:
+                    echec(f"état des mutes non conforme après démute : {relu}")
+                print("Sorties du plan démutées (relu), inutilisées mutées.")
+            if a.case is not None:
+                n = str(a.case)
+                avant_nom = {}
+                for x in d.rpc("Get", [n, n, "presetName"]):
+                    avant_nom.update(x.get("result") or {})
+                ancien = str(avant_nom.get(n) or "").strip()
+                if ancien and ancien != (a.nom or "").strip() and not a.ecraser:
+                    echec(f"la case {n} contient déjà « {ancien} » : --ecraser pour la remplacer (son contenu ne peut "
+                          "pas être sauvegardé avant)")
+                reps = d.rpc("Store", [n] + ([a.nom] if a.nom else []))
+                erreurs = [x["error"] for x in reps if x.get("error")]
+                if not reps or erreurs:
+                    echec(f"stockage case {n} : {erreurs or 'aucune réponse'} (réglages écrits mais non stockés)")
+                relu_nom = {}
+                for x in d.rpc("Get", [n, n, "presetName"]):
+                    relu_nom.update(x.get("result") or {})
+                journaliser(f"STORE preset {n} sur {ip} (plan {plan['systeme']}) : {ancien!r} -> nom relu {relu_nom.get(n)!r}")
+                print(f"Stocké case {n} : nom relu {relu_nom.get(n)!r}")
+                if a.nom and str(relu_nom.get(n, "")).strip() != a.nom.strip():
+                    echec(f"la case {n} s'appelle {relu_nom.get(n)!r}, pas {a.nom!r}")
+                if a.verifier:
+                    d.rpc("Load", [n])
+                    ecarts = dbx_plan.verifier_apres_rappel(d, r)
+                    journaliser(f"VERIF plan case {n} sur {ip} : {len(ecarts)} écart(s) après rappel")
+                    print(f"Après rappel de la case {n} : {len(ecarts)} écart(s)")
+                    for e in ecarts:
+                        print(f"  ✗ {e}")
+                    if ecarts:
+                        echec(f"{len(ecarts)} écart(s) après rappel de la case {n}")
         elif a.cmd == "instantane":
             t = dd.instantane_complet(d)
             if len(t) < 50:                       # firmware ou simulateur qui ne se décrit pas : carte connue

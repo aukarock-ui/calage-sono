@@ -746,3 +746,192 @@ def test_equilibre_gains_cki():
     eq = reglages_pile.equilibre_gains(cfg, mat)
     assert {k: v["gain_propose_db"] for k, v in eq.items()} == {"SUB": 0.0, "KICK": -6.0, "MEDIUM": -2.0, "HIGH": -4.0}
     assert all(v["gain_propose_db"] <= 0 for v in eq.values())            # jamais de gain positif
+
+
+# --- preset_auto / dbx_plan : de la config au processeur -----------------------------------------------------------
+import dbx_plan  # noqa: E402
+import preset_auto  # noqa: E402
+import yaml  # noqa: E402
+
+CKI = str(RACINE / "data" / "configs" / "ma-sono-cki.yaml")
+
+
+def _copie_cki(tmp_path, modif=None) -> str:
+    cfg = yaml.safe_load(Path(CKI).read_text(encoding="utf-8"))
+    if modif:
+        modif(cfg)
+    p = tmp_path / "cki.yaml"
+    p.write_text(yaml.safe_dump(cfg, allow_unicode=True), encoding="utf-8")
+    return str(p)
+
+
+def test_profils_programme():
+    assert reglages_pile.profil_de("techno") == "exigeant" and reglages_pile.profil_de("lourd") == "lourd"
+    assert reglages_pile.cible_style("exigeant", 55) == 16 and reglages_pile.cible_style("exigeant", 5000) == 0
+    assert reglages_pile.cible_style("techno", 30) == 16              # sous le pic : le HPF fait la chute, pas la cible
+
+
+def test_voicing_techno_cki():
+    mat, cfg = calc_systeme.charger(CKI)
+    vo = reglages_pile.voicing(cfg, mat, "techno")
+    g = {k: x["gain_style_db"] for k, x in vo["voies"].items()}
+    assert g["SUB"] == 0 and all(x <= 0 for x in g.values()) and g["HIGH"] < g["KICK"]
+    assert vo["voie_limitante"] == "SUB" and vo["profil"] == "exigeant"
+
+
+def test_plan_cki_techno():
+    p = preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True)
+    assert not p["bloquant"] and p["sorties_inutilisees"] == [5, 6]
+    v = {x["nom"]: x for x in p["voies"]}
+    assert v["SUB"]["controle_hpf"]["statut"] == "ok" and v["SUB"]["controle_hpf"]["hypothese"]
+    assert v["HIGH"]["limiteur"]["detection"] == "crete" and v["SUB"]["limiteur"]["detection"] == "rms"
+    assert v["SUB"]["limiteur"]["seuil"] == -23.1 and abs(v["SUB"]["delai_ms"] - 4.60) < 0.02
+    assert p["niveau"]["marge_db"] < 0                                 # 2 subs ne tiennent pas le profil exigeant à 20 m
+    assert "PUISSANCE" in " ".join(p["alertes"])
+    assert "| 4 | SUB |" in preset_auto.markdown(p)
+
+
+def test_plan_bass_reflex_sans_hpf_bloquant(tmp_path):
+    def sans_hpf(c):
+        c["crossover"]["SUB"]["hpf"] = None
+    p = preset_auto.construire_plan(_copie_cki(tmp_path, sans_hpf), "plat")
+    assert p["bloquant"] and any("DANGER" in b for b in p["bloquants"])
+    with pytest.raises(ValueError, match="BLOQUANT"):
+        dbx_plan.ecritures(p)
+
+
+def test_plan_hpf_trop_bas_propose(tmp_path):
+    def hpf_bas(c):
+        c["crossover"]["SUB"]["hpf"] = "LR24 20 Hz"
+    p = preset_auto.construire_plan(_copie_cki(tmp_path, hpf_bas), "plat")
+    c = {x["nom"]: x for x in p["voies"]}["SUB"]["controle_hpf"]
+    assert p["bloquant"] and c["statut"] == "a_relever" and 20 < float(c["hpf_propose"].split()[1]) <= 35
+
+
+def test_dbx_plan_seuil_au_dessus_plafond_refuse():
+    p = preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True)
+    p["voies"][0]["limiteur"]["seuil"] += 1.0
+    with pytest.raises(ValueError, match="(?i)au-dessus"):
+        dbx_plan.ecritures(p)
+
+
+def test_plan_cki_kick_non_verifie_bloquant():
+    p = preset_auto.construire_plan(CKI, "techno")                    # accord/volume du KICK inconnus, sans hypothèses
+    assert p["bloquant"] and any("KICK" in b and "non vérifié" in b for b in p["bloquants"])
+
+
+def test_plan_filtre_absent_non_declare_bloquant(tmp_path):
+    def sans_lpf(c):
+        c["crossover"]["MEDIUM"]["lpf"] = None
+    p = preset_auto.construire_plan(_copie_cki(tmp_path, sans_lpf), "plat", accepter_non_verifie=True)
+    assert p["bloquant"] and any("MEDIUM" in b and "lpf" in b for b in p["bloquants"])
+
+
+def test_dbx_plan_incoherent_avec_config_refuse():
+    p = preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True)
+    v = {x["nom"]: x for x in p["voies"]}
+    v["SUB"]["sortie"], v["HIGH"]["sortie"] = v["HIGH"]["sortie"], v["SUB"]["sortie"]   # sorties échangées
+    with pytest.raises(ValueError, match="sortie"):
+        dbx_plan.ecritures(p)
+
+
+def test_dbx_plan_gain_positif_et_config_externe_refuses(tmp_path):
+    p = preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True)
+    p["voies"][0]["gain_db"] = 6.0
+    with pytest.raises(ValueError, match="gain"):
+        dbx_plan.ecritures(p)
+    q = preset_auto.construire_plan(_copie_cki(tmp_path), "techno", accepter_non_verifie=True)
+    with pytest.raises(ValueError, match="hors de data/configs"):
+        dbx_plan.ecritures(q)
+
+
+def test_dbx_plan_ordre_protections_d_abord():
+    l, _ = dbx_plan.ecritures(preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True))
+    prot = [x[3] for x in l]
+    assert prot == sorted(prot, reverse=True)                         # toutes les protections avant le reste
+    assert (_K("Limiter4/SV/Threshold"), "-23.1dB", "SUB", True) in l
+
+
+def _K(chemin: str) -> str:
+    """« Limiter4/SV » -> chemin VENU360 \\\\Preset\\Limiter4\\SV."""
+    return "\\\\Preset\\" + chemin.replace("/", "\\")
+
+
+def _plan_fichier(tmp_path) -> str:
+    f = tmp_path / "plan.json"
+    f.write_text(json.dumps(preset_auto.construire_plan(CKI, "techno", accepter_non_verifie=True)), encoding="utf-8")
+    return str(f)
+
+
+def test_appliquer_plan_refuse_topologie_partagee(faux_dbx, monkeypatch, tmp_path):
+    # le simulateur a un crossover 5 voies partagé (CrossoverIIR1) : refus avant toute écriture, rien de muté
+    assert lancer_dbx(faux_dbx, "appliquer-plan", _plan_fichier(tmp_path), "--appliquer", "--protection-validee",
+                      monkeypatch=monkeypatch) != 0
+    assert faux_venu360.ARBRE[_K("OutputGains/SV")]["Channel_5_Mute"] == "Off"
+
+
+def test_appliquer_plan_sans_validation_refuse(faux_dbx, monkeypatch, tmp_path):
+    assert lancer_dbx(faux_dbx, "appliquer-plan", _plan_fichier(tmp_path), "--appliquer",
+                      monkeypatch=monkeypatch) != 0
+
+
+def test_appliquer_plan_simulateur(faux_dbx, monkeypatch, tmp_path):
+    for n in range(1, 7):                    # topologie « 6 × Mono Fullrange » : un crossover d'une bande par sortie
+        monkeypatch.setitem(faux_venu360.ARBRE, _K(f"CrossoverIIR{n}/SV"), {
+            "Band_1_HPFrequency": "Out", "Band_1_HPType": "LR 24", "Band_1_LPFrequency": "Out", "Band_1_LPType": "LR 24",
+            "Band_1_Gain": "0.0dB", "Band_1_Polarity": "Normal", "Band_1_Phase": "0 deg"})
+    for n in range(1, 7):
+        for bloc in (f"Limiter{n}/SV", f"DelayOut{n}/SV"):
+            monkeypatch.setitem(faux_venu360.ARBRE, _K(bloc), dict(faux_venu360.ARBRE[_K(bloc)]))
+    monkeypatch.setitem(faux_venu360.ARBRE, _K("OutputGains/SV"), dict(faux_venu360.ARBRE[_K("OutputGains/SV")]))
+    assert lancer_dbx(faux_dbx, "appliquer-plan", _plan_fichier(tmp_path), "--appliquer", "--protection-validee",
+                      "--demuter", monkeypatch=monkeypatch) == 0
+    A = faux_venu360.ARBRE
+    assert A[_K("Limiter4/SV")]["Threshold"] == "-23.1dB" and A[_K("CrossoverIIR4/SV")]["Band_1_HPFrequency"] == "35Hz"
+    assert A[_K("Limiter1/SV")]["PeakStopPlus"] == "On" and A[_K("Limiter4/SV")]["PeakStopPlus"] == "Off"
+    m = A[_K("OutputGains/SV")]
+    assert [m[f"Channel_{c}_Mute"] for c in range(1, 7)] == ["Off"] * 4 + ["On"] * 2   # inutilisées restent mutées
+    log = (tmp_path / "ecritures.log").read_text(encoding="utf-8")
+    assert "pas maximum levé" in log and "DBX PLAN" in log
+
+
+def test_recalage_delai_et_gain(tmp_path):
+    cfg = _copie_cki(tmp_path)
+    avant = preset_auto.construire_plan(cfg, "techno")
+    d = {x["nom"]: x["delai_ms"] for x in avant["voies"]}
+    mes = tmp_path / "mesures.yaml"
+    mes.write_text(yaml.safe_dump({"date": "2026-11-30", "point": {"distance_m": 20, "hauteur_m": 1.7}, "voies": {
+        "HIGH": {"delai_mesure_ms": 0.0}, "SUB": {"delai_mesure_ms": d["SUB"] + 0.5, "gain_ampli_mesure_db": 37.0,
+                                                  "accord_hz": 33}}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="RELÈVE"):                  # gain plus bas -> plafond plus haut : accord requis
+        preset_auto.recaler(cfg, str(mes))
+    r = preset_auto.recaler(cfg, str(mes), protection_validee=True)
+    e = r["ecarts"]["SUB"]
+    assert abs(e["delai"]["ecart_ms"] - 0.5) < 0.01
+    assert abs(e["delai"]["profondeur_cm"][1] - (21 - 0.5 * 343.4 / 10)) < 0.3      # centre acoustique plus en avant
+    rec = yaml.safe_load(Path(r["fichier"]).read_text(encoding="utf-8"))
+    assert abs(rec["voies"]["SUB"]["gain_canal_db"] - (37.0 - 6.02)) < 0.05 and rec["voies"]["SUB"]["accord_event_hz"] == 33
+    apres = preset_auto.construire_plan(cfg, "techno")                 # le plan régénéré intègre les corrections
+    assert abs({x["nom"]: x["delai_ms"] for x in apres["voies"]}["SUB"] - (d["SUB"] + 0.5)) < 0.05
+    assert apres["recalage"]["date"] == "2026-11-30"
+    s_av = {x["nom"]: x["limiteur"]["seuil"] for x in avant["voies"]}["SUB"]
+    s_ap = {x["nom"]: x["limiteur"]["seuil"] for x in apres["voies"]}["SUB"]
+    assert abs((s_av - s_ap) - (37.0 - 38.02)) < 0.15                  # gain mesuré plus bas -> seuil plus haut d'autant
+
+
+def test_recalage_voie_inconnue_refusee(tmp_path):
+    mes = tmp_path / "m.yaml"
+    mes.write_text("voies: {SUBB: {accord_hz: 30}}", encoding="utf-8")
+    with pytest.raises(ValueError, match="SUBB"):
+        preset_auto.recaler(_copie_cki(tmp_path), str(mes))
+
+
+def test_recalage_gain_aberrant_et_champ_interdit(tmp_path):
+    cfg = _copie_cki(tmp_path)
+    mes = tmp_path / "m.yaml"
+    mes.write_text("voies: {SUB: {gain_ampli_mesure_db: 28.0}}", encoding="utf-8")   # 10 dB d'écart : faute probable
+    with pytest.raises(ValueError, match="forcer-gain"):
+        preset_auto.recaler(cfg, str(mes), protection_validee=True)
+    calc_systeme.chemin_recalage(cfg).write_text("voies: {SUB: {hp_en_serie: 2}}", encoding="utf-8")
+    with pytest.raises(ValueError, match="non recalables"):
+        calc_systeme.charger(cfg)

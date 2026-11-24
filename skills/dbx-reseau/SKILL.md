@@ -90,6 +90,23 @@ Le générateur n'est jamais touché. Aucun son n'est émis.
 Résultat de référence (24/11/2026, preset 31, après revue de sécurité) : 967 réglages testés, 966 OK (59 arrondis machine), 1 option refusée par la machine (routage RTA « A »), 4062 refus vérifiés, 0 écart final, 0 dérive brute, sorties remises.
 Non testés : 3 réglages à valeur unique (Min = Max : AFS MaxTotalFilters, type de compresseur « dbx 1066 »). Les niveaux d'appareil `\\Node` sont exclus de l'autotest.
 
+## Construire un preset complet depuis un plan (chemin rapide)
+```
+python tools/preset_auto.py data/configs/<sys>.yaml --style techno            # plan neutre + feuille (lecture seule)
+dbx_hiqnet.py appliquer-plan <ip> plans/<sys>-techno-reglages.json --case 27 --nom "CKI 4V Techno" --verifier   # simulation
+dbx_hiqnet.py appliquer-plan <ip> plans/<sys>-techno-reglages.json --case 27 --nom "CKI 4V Techno" --verifier     --appliquer --protection-validee [--demuter]
+```
+`tools/dbx_plan.py` refuse hors ligne un plan BLOQUANT, un autre processeur, un seuil au-dessus du plafond recalculé,
+un plan qui ne correspond plus à la config actuelle (il est régénéré et comparé : sorties, filtres, polarité, seuils),
+une config hors `data/configs/`, un gain > 0 dB ou un délai hors [0, 30] ms. Seuils arrondis vers le bas.
+Topologie exigée : une sortie = un crossover indépendant (`CrossoverIIR<n>` à une seule bande, `Limiter<n>`,
+`DelayOut<n>`), soit un preset « 6 × Mono Fullrange » (case 29 sur la machine de Louis) chargé d'abord ; sinon refus
+avant toute écriture. Puis : instantané, mute relu, protections d'abord (limiteurs, filtres, polarité ; un échec arrête
+tout, sorties mutées), délais/gains/EQ à plat, relecture finale ; puis, seulement si tout est conforme : démute des
+sorties utilisées (`--demuter`, état relu exigé), stockage (case portant un autre nom : `--ecraser`) + nom relu,
+rappel + relecture (`--verifier`). Tout échec après les écritures re-mute les 6 sorties avant de sortir. Pas max par écriture levé pour cette construction
+(sorties mutées), journalisé.
+
 ## Presets
 ```
 dbx_hiqnet.py presets <ip>

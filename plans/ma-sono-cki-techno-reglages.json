@@ -1,0 +1,199 @@
+{
+ "version": 1,
+ "systeme": "ma-sono-cki",
+ "config": "data/configs/ma-sono-cki.yaml",
+ "date": "2026-11-24T11:29:44",
+ "processeur": "DBX_VENU360",
+ "style": "techno",
+ "profil": "exigeant",
+ "accepte_non_verifie": false,
+ "distance_m": 20.0,
+ "hauteur_ecoute_m": 1.7,
+ "recalage": null,
+ "voies": [
+  {
+   "nom": "SUB",
+   "sortie": 4,
+   "hpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 35.0
+   },
+   "lpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 90.0
+   },
+   "polarite": "normale",
+   "gain_db": 0.0,
+   "delai_ms": 4.6,
+   "limiteur": {
+    "seuil": -23.1,
+    "unite": "dBFS",
+    "attaque_ms": 16.0,
+    "relachement_db_s": 34,
+    "detection": "rms",
+    "overshoot_db": null
+   },
+   "controle_hpf": {
+    "statut": "ok",
+    "plage_accord_hz": [
+     28.0,
+     40.0
+    ],
+    "plage_volume_l": [
+     400.0,
+     550.0
+    ],
+    "hypothese": true,
+    "x_max_mm": 12.13,
+    "f_x_max_hz": 46.7,
+    "xmax_hp_mm": 13.5
+   },
+   "sources": {
+    "seuil": "calc_systeme (75 % puissance, gain ampli déclaré)",
+    "temps": "Proel DSO26 p. 34 ; dB/s = 8,686/τ (hypothèse)",
+    "detection": "crête : moteur à compression (McCarthy p. 28) ; RMS : grave (QSC derated)",
+    "delai": "reglages_pile.delais (géométrie + phase LR)",
+    "gain": "équilibre fiche + profil « techno »"
+   }
+  },
+  {
+   "nom": "KICK",
+   "sortie": 3,
+   "hpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 90.0
+   },
+   "lpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 400.0
+   },
+   "polarite": "normale",
+   "gain_db": -12.6,
+   "delai_ms": 1.7,
+   "limiteur": {
+    "seuil": -26.1,
+    "unite": "dBFS",
+    "attaque_ms": 8.0,
+    "relachement_db_s": 68,
+    "detection": "rms",
+    "overshoot_db": null
+   },
+   "controle_hpf": {
+    "statut": "non_verifie",
+    "motif": "accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses"
+   },
+   "sources": {
+    "seuil": "calc_systeme (75 % puissance, gain ampli déclaré)",
+    "temps": "Proel DSO26 p. 34 ; dB/s = 8,686/τ (hypothèse)",
+    "detection": "crête : moteur à compression (McCarthy p. 28) ; RMS : grave (QSC derated)",
+    "delai": "reglages_pile.delais (géométrie + phase LR)",
+    "gain": "équilibre fiche + profil « techno »"
+   }
+  },
+  {
+   "nom": "MEDIUM",
+   "sortie": 2,
+   "hpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 400.0
+   },
+   "lpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 1600.0
+   },
+   "polarite": "normale",
+   "gain_db": -16.3,
+   "delai_ms": 1.23,
+   "limiteur": {
+    "seuil": -26.1,
+    "unite": "dBFS",
+    "attaque_ms": 2.0,
+    "relachement_db_s": 271,
+    "detection": "rms",
+    "overshoot_db": null
+   },
+   "controle_hpf": null,
+   "sources": {
+    "seuil": "calc_systeme (75 % puissance, gain ampli déclaré)",
+    "temps": "Proel DSO26 p. 34 ; dB/s = 8,686/τ (hypothèse)",
+    "detection": "crête : moteur à compression (McCarthy p. 28) ; RMS : grave (QSC derated)",
+    "delai": "reglages_pile.delais (géométrie + phase LR)",
+    "gain": "équilibre fiche + profil « techno »"
+   }
+  },
+  {
+   "nom": "HIGH",
+   "sortie": 1,
+   "hpf": {
+    "famille": "LR",
+    "pente_db_oct": 24,
+    "hz": 1600.0
+   },
+   "lpf": null,
+   "polarite": "normale",
+   "gain_db": -19.9,
+   "delai_ms": 0.0,
+   "limiteur": {
+    "seuil": -31.1,
+    "unite": "dBFS",
+    "attaque_ms": 0.5,
+    "relachement_db_s": 360,
+    "detection": "crete",
+    "overshoot_db": 6
+   },
+   "controle_hpf": null,
+   "sources": {
+    "seuil": "calc_systeme (75 % puissance, gain ampli déclaré)",
+    "temps": "Proel DSO26 p. 34 ; dB/s = 8,686/τ (hypothèse)",
+    "detection": "crête : moteur à compression (McCarthy p. 28) ; RMS : grave (QSC derated)",
+    "delai": "reglages_pile.delais (géométrie + phase LR)",
+    "gain": "équilibre fiche + profil « techno »"
+   }
+  }
+ ],
+ "sorties_inutilisees": [
+  5,
+  6
+ ],
+ "voie_limitante": "SUB",
+ "niveau": {
+  "distance_m": 20.0,
+  "plateau_db": 92.9,
+  "cible_dba": 108,
+  "marge_db": -15.1
+ },
+ "reserves_db": {
+  "SUB": 0.0,
+  "KICK": 9.6,
+  "MEDIUM": 13.3,
+  "HIGH": 8.9
+ },
+ "alertes": [
+  "SUB : Accord d'évent inconnu : HPF 35 Hz non comparable à l'accord (mesure d'impédance à faire).",
+  "SUB : QSC_PL380 en bridge : gain pris à 38.0 dB (canal +6,02) — CONFIRMER au voltmètre.",
+  "SUB : PL380 bridge : puissances constructeur en burst — marge réelle continue plus faible.",
+  "KICK : Accord d'évent inconnu : HPF 90 Hz non comparable à l'accord (mesure d'impédance à faire).",
+  "KICK : BEYMA_SM118_GEN1 : puissance 250 W non AES — limiteur calculé dessus, à confirmer.",
+  "KICK : QSC_PLX3402 en bridge : gain pris à 38.0 dB (canal +6,02) — CONFIRMER au voltmètre.",
+  "MEDIUM : BEYMA_SM115_GEN1 : puissance 250 W non AES — limiteur calculé dessus, à confirmer.",
+  "MEDIUM : QSC_PLX3002 en bridge : gain pris à 38.0 dB (canal +6,02) — CONFIRMER au voltmètre.",
+  "HIGH : BEYMA_CP650TI : puissance 80 W non AES — limiteur calculé dessus, à confirmer.",
+  "HIGH : Sensibilité CP650Ti donnée sur TD-460, pas sur HP640 : SPL indicatif.",
+  "HIGH : Seuil très bas (< -24 dBFS) : gain ampli trop élevé pour cette voie — envisager de baisser le gain ampli.",
+  "PUISSANCE : à 20 m, plateau atteignable ≈ 92.9 dB contre 108 dB(A) visés par le profil « exigeant » (-15.1 dB) — voie limitante SUB. Une seule pile en champ libre : la salle et le couplage ajoutent quelques dB ; sinon ajouter des caisses sur cette voie ou viser un profil plus léger."
+ ],
+ "bloquants": [
+  "KICK : HPF non vérifié en excursion (accord et/ou volume inconnus, sans `hypotheses_caisse` : mesurer l'impédance (accord) et le volume, ou donner une plage d'hypothèses) — ou --accepter-non-verifie sur décision de Louis"
+ ],
+ "bloquant": true,
+ "hypotheses": [
+  "Centres acoustiques de `geometrie_pile` : hypothèses tant que l'IR ne les a pas confirmés.",
+  "SUB : HPF vérifié sur des HYPOTHÈSES de caisse (accord [28.0, 40.0] Hz, volume [400.0, 550.0] L)."
+ ]
+}

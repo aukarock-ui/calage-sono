@@ -68,6 +68,23 @@ description: Mesurer et analyser la réponse d'un système son (fonction de tran
 4. Tester polarité inversée si l'écart dépasse ±90° sans solution de délai raisonnable.
 5. Valider en mesurant A+B : sommation ≈ +6 dB à Fc pour des niveaux égaux.
 
+## Recalage des calculs par la mesure (`preset_auto --recaler`)
+Après application d'un plan, mesurer et noter dans `mesures/<sys>-<date>.yaml` :
+```yaml
+date: 2026-11-30
+point: {distance_m: 20, hauteur_m: 1.7}       # même point que le plan
+voies:
+  HIGH:   {delai_mesure_ms: 0.0}               # délai qui aligne la voie (IR puis phase) ; la voie de référence du plan
+  MEDIUM: {delai_mesure_ms: 1.10, ecart_niveau_db: -1.5}   # niveau dans la bande − niveau visé (ONAX), dB
+  SUB:    {delai_mesure_ms: 4.9, gain_ampli_mesure_db: 37.4, accord_hz: 32}   # voltmètre (HP débranchés) ; impédance
+```
+`python tools/preset_auto.py --recaler data/configs/<sys>.yaml mesures/<sys>-<date>.yaml` : délai → centre acoustique
+effectif (`profondeur_cm`), gain mesuré → `gain_canal_db` (donc seuils recalculés), accord → `accord_event_hz` (HPF
+revérifié), écart de niveau → `correction_sensibilite_db`. Tout va dans `data/configs/<sys>.recalage.yaml` avec
+l'historique des écarts : c'est ce qui permet d'améliorer les modèles (noter la synthèse dans ETAT). Garde-fous : gain
+mesuré qui relève un plafond de limiteur → `--protection-validee` (accord de Louis) ; écart de gain > 3 dB →
+`--forcer-gain` après contre-mesure.
+
 ## Ce que Claude ne fait pas
 - Décider d'une EQ ailleurs qu'en ONAX, sur une vue en tiers d'octave, ou à faible cohérence.
 - Égaliser un pic qui varie d'une chanson à l'autre pendant le concert : c'est la scène (fuite des instruments ou

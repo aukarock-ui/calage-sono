@@ -17,6 +17,8 @@ Sortie : `data/evenements/AAAA-MM-JJ_<lieu>.yaml` (copie du modèle remplie).
 3. Distances : demander des valeurs mesurées. Si Louis estime, noter `# estimé` en commentaire et le signaler
    comme à re-mesurer sur site.
 4. Écrire la fiche au fur et à mesure (rien ne se perd si la session coupe).
+5. Le style de la fiche choisit le profil de `preset_auto --style` (techno/dub → exigeant, live/rock/hip-hop → lourd,
+   jazz/acoustique → moyen, parole → léger) ; la distance du public sert à `--distance` (puissance atteignable).
 
 ## Ce qu'on en déduit (à présenter à la fin)
 - **Délais physiques** : distance pile → positions micro et pile → régie, via

@@ -3,6 +3,20 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-24 (suite 2) : chemin rapide config → processeur, profils de programme, techno « exigeant »
+
+- **Nouveaux outils** :
+  - `tools/preset_auto.py` : plan neutre (JSON + feuille `.md`) depuis n'importe quelle config à composants. Il enchaîne calc_systeme, excursion_br (HPF des BR vérifiés sur `hypotheses_caisse`, HPF minimal proposé sinon), reglages_pile et un contrôle de puissance. Le plan est marqué BLOQUANT sur DANGER, excursion ou réglage de sortie non confirmé.
+  - `--recaler <config> <mesures.yaml>` : écrit `<config>.recalage.yaml`, que tous les outils lisent via `calc_systeme.charger`. Le délai IR corrige la profondeur, le gain voltmètre corrige `gain_canal_db`, l'impédance corrige l'accord, l'écart de niveau corrige la sensibilité. Chaque recalage est historisé.
+  - `tools/dbx_plan.py` + `dbx_hiqnet.py appliquer-plan` : topologie à sorties indépendantes exigée, mute relu, protections d'abord (un échec arrête tout), relecture finale, `--demuter`, stockage + nom relu, `--verifier` (rappel puis relecture). Le plafond est recalculé hors ligne.
+- **Profils de programme** (L-Acoustics, diapo p. 34 fournie par Louis) : léger 99 / moyen 102 / lourd 105 / exigeant 108 dB(A). Grave relevé de +2 / +10 / +13 / +16 dB, plateau plat au-dessus de ~1 kHz. Ils remplacent mes courbes approximatives : l'ancienne techno ne relevait le grave que de +6 dB.
+- **Techno CKI = profil exigeant**, appliqué sur la vraie machine par `appliquer-plan` : 76/76 écritures conformes, case 27 « CKI 4V Techno » stockée, rappelée, **0 écart**. Sorties 1-4 démutées, 5-6 mutées. Instantané d'avant : `journal/instantanes/20261124-112325-avant-plan.json`.
+  - Gains de sortie : SUB 0, KICK −12,6, MEDIUM −16,3, HIGH −19,9 dB. Seuils, temps et délais inchangés.
+  - **Puissance** : voie limitante SUB (2 × 21"). Plateau atteignable ≈ 93 dB à 20 m (une pile, champ libre), contre 108 dB(A) pour le profil exigeant, soit **−15 dB**. Réserves inutilisées : KICK 9,6, MEDIUM 13,3, HIGH 8,9 dB. Pour un vrai « exigeant » à 20 m, il faut plus de subs (chaque doublement en couplage ≈ +6 dB) ou un public plus proche. À confirmer par la mesure : la salle et le sol ajoutent du grave.
+- **Revue controleur-securite** (11 constats, tous traités sauf un) : liste blanche et gardes du recalage (gain qui relève un plafond → `--protection-validee`, écart > 3 dB → `--forcer-gain`) ; plan régénéré et comparé à la config avant écriture ; filtre absent bloquant sauf « aucun » déclaré ; démute après conformité, relu, puis re-mute sur tout échec ; `--ecraser` pour une case portant un autre nom ; gain ≤ 0 dB et délai 0-30 ms ; seuil arrondi vers le bas ; HPF BR non vérifiable bloquant sauf `--accepter-non-verifie`. Reste : une protection non décrite par la machine n'est contrôlée que par relecture stricte.
+  - Conséquence : le plan CKI est désormais **BLOQUANT** tant que le HPF 90 Hz du KICK n'est pas vérifié (accord et volume inconnus). L'écriture de la case 27 s'est faite avant cette garde. Louis doit fournir l'accord/volume ou une plage d'hypothèses, ou décider `--accepter-non-verifie`.
+- **Questions ouvertes** : chaud = plateau plat dans l'aigu (source) ou léger retrait au-dessus de 4 kHz ? Hypothèses de caisse du KICK (accord, volume) pour vérifier son HPF 90 Hz.
+
 
 
 

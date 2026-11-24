@@ -169,9 +169,11 @@ def equilibre_gains(cfg: dict, mat: dict, niveau_proc_dbu: float = 0.0) -> dict:
         lpf = lire_filtre((cfg.get("crossover", {}).get(v["nom"]) or {}).get("lpf"))
         f_centre = math.sqrt((flt[2] if flt else 30.0) * (lpf[2] if lpf else 16000.0))
         coherent = f_centre < COHERENT_SOUS_HZ
-        spl = hp["sensibilite_db_1w1m"] + 10 * math.log10(p_hp) + (20 if coherent else 10) * math.log10(n)
+        corr = float(v.get("correction_sensibilite_db") or 0.0)   # recalage par la mesure (preset_auto --recaler)
+        spl = hp["sensibilite_db_1w1m"] + corr + 10 * math.log10(p_hp) + (20 if coherent else 10) * math.log10(n)
         out[v["nom"]] = {"n_hp": n, "gain_ampli_db": g, "v_bornes": v_bornes, "p_hp_w": p_hp, "f_centre_hz": f_centre,
-                         "somme": "cohérente" if coherent else "incohérente", "spl_1m_db": spl}
+                         "somme": "cohérente" if coherent else "incohérente", "spl_1m_db": spl,
+                         "correction_sensibilite_db": corr}
     ok = [x["spl_1m_db"] for x in out.values() if "spl_1m_db" in x]
     for x in out.values():
         if "spl_1m_db" in x:
@@ -179,13 +181,92 @@ def equilibre_gains(cfg: dict, mat: dict, niveau_proc_dbu: float = 0.0) -> dict:
     return out
 
 
+# --- 4. Courbe cible par style ------------------------------------------------------------------------------------
+# Écart visé (dB) par rapport au plateau aigu, en fonction de la fréquence ; interpolé en log au centre de la bande de
+# chaque voie. SOURCE : L-Acoustics, diapo « Loudspeaker system — System response », p. 34 (fournie par Louis le
+# 24/11/2026, docs/references/profils_programme_system_response_p34.jpg) : performance d'un système exprimée en niveau
+# + fréquence, en MOYENNE dans la salle, selon le programme. Lecture du graphe à ±1 dB :
+#   Light (conférence) plateau 99 dB(A), +2 dB vers 60 Hz ;
+#   Medium (jazz, acoustique) 102 dB(A), +10 dB vers 50 Hz, plateau atteint vers 600 Hz ;
+#   Heavy (groupe live) 105 dB(A), +13 dB vers 55 Hz, plateau vers 750 Hz ;
+#   Demanding (DJ, électro) 108 dB(A), +16 dB vers 55 Hz, plateau vers 1 kHz.
+# Plateau plat au-dessus (pas de pente dans l'aigu). Sous ~50 Hz les courbes tombent : c'est la coupure du système,
+# laissée au HPF (on garde ici la valeur du pic, le HPF fait la chute).
+PROFILS = {
+    "leger":    {60: 2, 200: 1.5, 500: 0, 20000: 0},
+    "moyen":    {50: 9.5, 100: 8, 200: 5.5, 500: 1.5, 650: 0, 20000: 0},
+    "lourd":    {55: 13, 100: 11.5, 200: 8, 500: 2, 750: 0, 20000: 0},
+    "exigeant": {55: 16, 100: 13.5, 200: 9, 500: 4, 1100: 0, 20000: 0},
+}
+NIVEAU_PROFIL_DBA = {"leger": 99, "moyen": 102, "lourd": 105, "exigeant": 108}   # plateau, moyenne salle
+STYLE_PROFIL = {"techno": "exigeant", "reggae-dub": "exigeant", "hip-hop": "lourd", "rock": "lourd",
+                "jazz": "moyen", "acoustique": "moyen", "parole": "leger"}
+STYLES = {"plat": {20: 0, 20000: 0}, **PROFILS, **{s: PROFILS[p] for s, p in STYLE_PROFIL.items()}}
+
+
+def profil_de(style: str | None) -> str | None:
+    return style if style in PROFILS else STYLE_PROFIL.get(style or "")
+
+
+def cible_style(style: str, f_hz: float) -> float:
+    pts = sorted(STYLES[style].items())
+    if f_hz <= pts[0][0]:
+        return float(pts[0][1])
+    for (f0, g0), (f1, g1) in zip(pts, pts[1:]):
+        if f_hz <= f1:
+            return g0 + (g1 - g0) * math.log(f_hz / f0) / math.log(f1 / f0)
+    return float(pts[-1][1])
+
+
+def voicing(cfg: dict, mat: dict, style: str = "plat") -> dict:
+    """Gains de sortie = équilibre plat + courbe du style, ramenés à ≤ 0 dB ; niveau max limité par la voie la plus faible."""
+    from calc_systeme import calc_voie
+    eq = equilibre_gains(cfg, mat)
+    ok = {k: x for k, x in eq.items() if "spl_1m_db" in x}
+    for nom, x in ok.items():
+        x["cible_style_db"] = round(cible_style(style, x["f_centre_hz"]), 1)
+        x["brut"] = x["gain_propose_db"] + x["cible_style_db"]
+    haut = max(x["brut"] for x in ok.values())
+    marges = {}
+    for v in cfg["voies"]:
+        if v["nom"] not in ok:
+            continue
+        x = ok[v["nom"]]
+        x["gain_style_db"] = round(x["brut"] - haut, 1)
+        r = calc_voie(v, mat, cfg)
+        smax = r.get("spl_max_1m_coherent_db") if x["somme"] == "cohérente" else r.get("spl_max_1m_incoherent_db")
+        if smax is not None:
+            smax += x.get("correction_sensibilite_db", 0.0)
+            x["spl_max_1m_db"] = smax
+            marges[v["nom"]] = smax - x["cible_style_db"]        # niveau « médium équivalent » atteignable par cette voie
+    limite = min(marges, key=marges.get) if marges else None
+    for nom, x in ok.items():
+        if limite and nom in marges:
+            x["reserve_db"] = round(marges[nom] - marges[limite], 1)   # dB inutilisés avant son limiteur
+    return {"style": style, "profil": profil_de(style), "voies": eq, "voie_limitante": limite,
+            "niveau_medium_max_1m_db": round(marges[limite], 1) if limite else None}
+
+
+def niveau_atteignable(vo: dict, distance_m: float) -> dict | None:
+    """Plateau atteignable à `distance_m` (une pile, champ libre, source ponctuelle : -20·log d) comparé au niveau du
+    profil. Ignore le gain de salle et de couplage au sol : ordre de grandeur, la mesure tranche."""
+    if vo.get("niveau_medium_max_1m_db") is None:
+        return None
+    n = vo["niveau_medium_max_1m_db"] - 20 * math.log10(max(distance_m, 1.0))
+    cible = NIVEAU_PROFIL_DBA.get(vo.get("profil") or "")
+    return {"distance_m": distance_m, "plateau_db": round(n, 1), "cible_dba": cible,
+            "marge_db": round(n - cible, 1) if cible else None}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config")
     ap.add_argument("--distance", type=float, default=20.0, help="distance horizontale du point d'écoute (m)")
     ap.add_argument("--hauteur-ecoute", type=float, default=1.7)
+    ap.add_argument("--style", default=None, help="courbe cible : " + ", ".join(STYLES))
     a = ap.parse_args()
-    cfg = yaml.safe_load(Path(a.config).read_text(encoding="utf-8"))
+    from calc_systeme import charger
+    mat, cfg = charger(a.config)              # avec les corrections mesurées (<config>.recalage.yaml) s'il y en a
     print(f"# Réglages calculés — {cfg.get('nom')}\n\n## Limiteurs (Proel : attaque selon le HPF, relâchement 16×)\n")
     print("| Voie | HPF | Attaque | Relâchement | → VENU360 |\n|---|---|---|---|---|")
     for v in cfg["voies"]:
@@ -203,8 +284,6 @@ def main():
     for p in r["paires"]:
         print(f"| {p['bas']}/{p['haut']} | {p['fc_hz']:.0f} Hz | {p['geometrique_ms']:.2f} ms | {p['delai_bas_ms']:.2f} ms | "
               f"{p['somme_db']:+.1f} dB |")
-    from calc_systeme import charger
-    mat, _ = charger(a.config)
     eq = equilibre_gains(cfg, mat)
     print("\n## Équilibre des gains (même niveau processeur 0 dBu sur chaque voie)\n")
     print("| Voie | HP | Gain ampli | P par HP | Somme | SPL 1 m | Gain de sortie proposé |\n|---|---|---|---|---|---|---|")
@@ -213,6 +292,16 @@ def main():
             print(f"| {nom} | — | — | — | — | — | {x['erreur']} |"); continue
         print(f"| {nom} | {x['n_hp']} | {x['gain_ampli_db']:.1f} dB | {x['p_hp_w']:.2f} W | {x['somme']} | "
               f"{x['spl_1m_db']:.1f} dB | **{x['gain_propose_db']:+.1f} dB** |")
+    if a.style:
+        vo = voicing(cfg, mat, a.style)
+        print(f"\n## Style « {a.style} » (gains ramenés à ≤ 0 dB)\n")
+        print("| Voie | Centre de bande | Cible style | Gain de sortie | Réserve avant limiteur |\n|---|---|---|---|---|")
+        for nom, x in vo["voies"].items():
+            if "gain_style_db" in x:
+                print(f"| {nom} | {x['f_centre_hz']:.0f} Hz | {x['cible_style_db']:+.1f} dB | **{x['gain_style_db']:+.1f} dB** | "
+                      f"{x.get('reserve_db', '—')} dB |")
+        print(f"\nVoie limitante : **{vo['voie_limitante']}** — niveau médium max ≈ {vo['niveau_medium_max_1m_db']} dB à 1 m "
+              "(les autres voies gardent leur réserve inutilisée).")
     print("\nHypothèses : centres acoustiques de `geometrie_pile` (non mesurés) ; réponses propres des HP/caisses ignorées. "
           "À comparer à la mesure (IR puis phase) et noter l'écart.")
 
