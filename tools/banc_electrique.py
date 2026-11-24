@@ -290,7 +290,8 @@ def enregistrer(res: dict, cible: Path | None = None) -> Path:
     # ordre mesuré au banc : prime s'il est déterminé ; « indéterminé » ne remplace pas un ordre établi par la topologie
     if res.get("chaine_sortie") and (res["chaine_sortie"] != "indetermine" or not ancien.get("chaine_sortie")):
         doc["chaine_sortie"] = res["chaine_sortie"]
-    doc["chaine_banc"] = res.get("chaine_sortie")
+    if res.get("chaine_sortie") in ("peq_avant_limiteur", "peq_apres_limiteur"):   # une mesure établie ne s'efface pas
+        doc["chaine_banc"] = res["chaine_sortie"]
     doc["portee"] = (f"mesuré sur la sortie {res['sortie']} seule ; supposé identique sur les 6 sorties (même bloc "
                      "PEQOut/Limiter) — à revérifier après un changement de firmware ou de topologie")
     doc["motif_chaine"] = res.get("motif")

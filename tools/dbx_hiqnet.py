@@ -474,6 +474,8 @@ def main() -> None:
     ap.add_argument("--hors-carte", action="store_true", help="écrire un chemin absent de la carte (vérifié par get)")
     ap.add_argument("--par-pas", action="store_true",
                     help="set/regler/lot : découper un écart > pas maximum (±3 dB, ±0,5 ms, ±45°), chaque pas relu")
+    ap.add_argument("--cumul-valide", action="store_true",
+                    help="--par-pas au-delà de 2 pas sans remesure (accord explicite de Louis) — distinct de --protection-validee")
     ap.add_argument("--pas-libre", action="store_true",
                     help="set/regler/lot : lever le pas maximum (construction de preset) — seulement 6 sorties relues mutées")
     ap.add_argument("--enregistrer", action="store_true", help="chaine : enregistrer l'ordre lu dans data/protocoles/venu360_phase.yaml")
@@ -850,7 +852,7 @@ def _options(a):
     import dbx_reglage as dr
     return dr.Options(appliquer=a.appliquer, protection_validee=a.protection_validee, signal_valide=a.signal_valide,
                       config=a.config, voie=a.voie, depasser_plafond=a.depasser_plafond, hors_carte=a.hors_carte,
-                      par_pas=a.par_pas, pas_libre=a.pas_libre, journal=journaliser,
+                      par_pas=a.par_pas, pas_libre=a.pas_libre, cumul_valide=a.cumul_valide, journal=journaliser,
                       dossier_instantanes=JOURNAL / "instantanes")
 
 

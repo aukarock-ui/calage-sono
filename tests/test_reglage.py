@@ -20,6 +20,8 @@ CKI = str(RACINE / "data" / "configs" / "ma-sono-cki.yaml")
 XG = "\\\\Preset\\CrossoverIIR1\\SV\\Band_1_Gain"
 DL = "\\\\Preset\\DelayOut1\\SV\\Amount"
 A = faux_venu360.ARBRE
+CINQ_BANDES = dict(faux_venu360._arbre()["\\\\Preset\\CrossoverIIR1\\SV"])
+UNE_BANDE = {k: v for k, v in CINQ_BANDES.items() if k.startswith("Band_1_")} | {"Band_1_HPFrequency": "Out", "Band_1_LPFrequency": "Out"}
 
 
 def _K(c):
@@ -31,6 +33,8 @@ def faux_dbx(tmp_path, monkeypatch):
     for bloc in ("CrossoverIIR1/SV", "DelayOut1/SV", "OutputGains/SV", "PEQOut2/SV", "Limiter4/SV"):
         monkeypatch.setitem(A, _K(bloc), dict(A[_K(bloc)]))
     monkeypatch.setitem(A, "\\\\Node\\Settings\\SV", dict(A["\\\\Node\\Settings\\SV"]))
+    for n in range(1, 7):          # comme la vraie machine : preset « 6 × Mono Fullrange » (un crossover d'une bande)
+        monkeypatch.setitem(A, _K(f"CrossoverIIR{n}/SV"), dict(UNE_BANDE))
     srv = faux_venu360.S(("127.0.0.1", 0), faux_venu360.H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     monkeypatch.setattr(dbx_hiqnet, "JOURNAL", tmp_path)
@@ -99,6 +103,8 @@ def test_set_delai_par_pas(faux_dbx, monkeypatch, tmp_path):
     assert lancer(faux_dbx, "set", DL, "2ms", "--appliquer", "--par-pas", monkeypatch=monkeypatch) != 0  # > 2 pas
     assert lancer(faux_dbx, "set", DL, "1ms", "--appliquer", "--par-pas", monkeypatch=monkeypatch) == 0
     assert lancer(faux_dbx, "set", DL, "3ms", "--appliquer", "--par-pas", "--protection-validee",
+                  monkeypatch=monkeypatch) != 0                    # une protection validée ne vaut pas accord de cumul
+    assert lancer(faux_dbx, "set", DL, "3ms", "--appliquer", "--par-pas", "--cumul-valide",
                   monkeypatch=monkeypatch) == 0
     assert _log(tmp_path).count(DL) == 6 and A[_K("DelayOut1/SV")]["Amount"].startswith("3ms")
 
@@ -143,10 +149,48 @@ def test_voie_contredite_refusee(faux_dbx, monkeypatch, tmp_path):
 
 
 def test_alias_refuse_sur_crossover_multivoie(faux_dbx, monkeypatch, tmp_path):
-    # le simulateur a un CrossoverIIR1 à 5 bandes : HIGH (sortie 1).gain viserait la mauvaise voie
+    # CrossoverIIR1 à 5 bandes : tout alias de HIGH (sortie 1) viserait la mauvaise voie, pas seulement le crossover
+    monkeypatch.setitem(A, _K("CrossoverIIR1/SV"), dict(CINQ_BANDES))
+    for alias, val, *opt in (("HIGH.gain", "-1.0dB"), ("HIGH.delai", "0.2ms"), ("HIGH.eq.1.gain", "-1.0dB"),
+                             ("HIGH.limiteur.seuil", "-35.0dB", "--protection-validee")):
+        assert lancer(faux_dbx, "regler", alias, val, "--config", CKI, "--appliquer", *opt,
+                      monkeypatch=monkeypatch) != 0, alias
+    assert A[_K("CrossoverIIR1/SV")]["Band_1_Gain"] == "0.0dB" and A[_K("DelayOut1/SV")]["Amount"] == "0ms/0ft/0m"
+    monkeypatch.setitem(A, _K("CrossoverIIR1/SV"), dict(UNE_BANDE) | {"Sub_HPFrequency": "Out"})
     assert lancer(faux_dbx, "regler", "HIGH.gain", "-1.0dB", "--config", CKI, "--appliquer",
+                  monkeypatch=monkeypatch) != 0                    # bande Sub : multivoie aussi
+
+
+def test_seuil_exige_niveau_sortie_relu_egal_config(faux_dbx, monkeypatch, tmp_path):
+    A["\\\\Node\\Settings\\SV"]["Output4Gain"] = "+12 dBu"           # changé en façade : config CKI à +22
+    assert lancer(faux_dbx, "regler", "SUB.limiteur.seuil", "-25.0dB", "--config", CKI, "--appliquer",
+                  "--protection-validee", monkeypatch=monkeypatch) != 0
+    assert A[_K("Limiter4/SV")]["Threshold"] == "-20.0dB"
+
+
+def test_seuil_sortie_sans_voie_refuse(faux_dbx, monkeypatch, tmp_path):
+    monkeypatch.setitem(A, _K("Limiter6/SV"), dict(A[_K("Limiter6/SV")]))
+    assert lancer(faux_dbx, "set", "\\\\Preset\\Limiter6\\SV\\Threshold", "-30.0dB", "--config", CKI, "--voie", "SUB",
+                  "--appliquer", "--protection-validee", monkeypatch=monkeypatch) != 0
+    assert A[_K("Limiter6/SV")]["Threshold"] == "-20.0dB"
+
+
+def test_overshoot_seulement_a_la_baisse(faux_dbx, monkeypatch, tmp_path):
+    monkeypatch.setitem(A, _K("Limiter4/SV"), dict(A[_K("Limiter4/SV")]) | {"OvershootDb": "2.0dB"})
+    assert lancer(faux_dbx, "regler", "SUB.limiteur.overshoot", "6.0dB", "--config", CKI, "--appliquer",
+                  "--protection-validee", "--hors-carte", monkeypatch=monkeypatch) != 0
+    assert A[_K("Limiter4/SV")]["OvershootDb"] == "2.0dB"
+
+
+def test_activer_un_bloc_exige_la_sortie_mutee(faux_dbx, monkeypatch, tmp_path):
+    monkeypatch.setitem(A, _K("DelayOut3/SV"), dict(A[_K("DelayOut3/SV")]) | {"Delay": "Off"})
+    assert lancer(faux_dbx, "regler", "KICK.delai.actif", "On", "--config", CKI, "--appliquer", "--hors-carte",
                   monkeypatch=monkeypatch) != 0
-    assert A[_K("CrossoverIIR1/SV")]["Band_1_Gain"] == "0.0dB"
+    assert A[_K("DelayOut3/SV")]["Delay"] == "Off"
+    A[_K("OutputGains/SV")]["Channel_3_Mute"] = "On"
+    assert lancer(faux_dbx, "regler", "KICK.delai.actif", "On", "--config", CKI, "--appliquer", "--hors-carte",
+                  monkeypatch=monkeypatch) == 0
+    assert A[_K("DelayOut3/SV")]["Delay"] == "On"
 
 
 def test_bosse_peqout_relit_la_topologie(faux_dbx, monkeypatch, tmp_path):
@@ -256,6 +300,25 @@ def test_retour_arriere_generateur_jamais_rallume():
     assert d.v["\\\\Preset\\SignalGenerator\\SV\\Signal Amplitude"] == "-30dB" and a["motif"]
     n = dr._remettre(d, "x", {"chemin": XG, "avant": None}, o)
     assert n["remis"] is False and "inconnue" in n["erreur"]
+
+
+def test_retour_arriere_ne_demute_jamais(faux_dbx, monkeypatch, tmp_path):
+    vrai = dd.ecrire_et_relire
+    vu = []
+
+    def panne(d, chemin, valeur, desc):
+        if chemin.endswith("PEQOut2\\SV\\Band_2_Gain") and not vu:
+            vu.append(1)
+            return "9.9dB", False, None
+        return vrai(d, chemin, valeur, desc)
+
+    monkeypatch.setattr(dd, "ecrire_et_relire", panne)
+    mute3 = "SORTIE3.mute"
+    f = _lot(tmp_path, [{mute3: "On"}, {"KICK.gain": "-1.0dB"}, {"MEDIUM.eq.2.gain": "-2.0dB"}])
+    assert lancer(faux_dbx, "lot", f, "--appliquer", "--protection-validee", monkeypatch=monkeypatch) != 0
+    assert A[_K("OutputGains/SV")]["Channel_3_Mute"] == "On"           # était Off : laissé muté
+    assert A[_K("CrossoverIIR3/SV")]["Band_1_Gain"] == "0.0dB"           # remis
+    assert "laissé muté" in _log(tmp_path)
 
 
 # ---------- chaîne de sortie ----------

@@ -69,12 +69,14 @@ Vérifié en vrai le 24/11/2026 : un lot refusé n'écrit rien ; un lot qui éch
 
 Règles (ne pas les contourner) :
 - **Pas maximum par écriture** : gains et EQ ±3 dB, délai ±0,5 ms, phase ±45°. Au-delà, refus.
-  - `--par-pas` découpe l'écart, chaque pas étant écrit puis relu (vérifié en vrai : KICK −12,6 → −18,6 dB en 2 pas, délai 0 → 1 ms, phase 0 → −90°). Au-delà de 2 pas sans remesure (6 dB, 1 ms, 90°), il faut aussi `--protection-validee`.
+  - `--par-pas` découpe l'écart, chaque pas étant écrit puis relu (vérifié en vrai : KICK −12,6 → −18,6 dB en 2 pas, délai 0 → 1 ms, phase 0 → −90°). Au-delà de 2 pas sans remesure (6 dB, 1 ms, 90°), il faut aussi `--cumul-valide` (accord de Louis ; `--protection-validee` ne suffit pas).
+  - Activer un bloc (`Delay`, `ParametricEQ` : Off → On) applique d'un coup le délai ou l'EQ mémorisés : seulement la sortie concernée relue mutée (les 6 pour PEQ1). Sensibilité d'entrée `Input<n>Gain` : seulement les 6 sorties mutées.
+  - `OvershootDb` d'un limiteur : seulement à la baisse (à la hausse, il laisserait passer plus que le seuil).
   - Valeur actuelle illisible (délai dépassé, unité inconnue) : refus, car rien n'est écrit sans état d'avant connu.
-  - Bosse (gain > 0) sur un PEQOut : l'ordre PEQ/limiteur est relu en direct dans la topologie avant d'écrire.
-  - Alias de voie sur un crossover multivoie (CrossoverIIR à plusieurs bandes) : refusé, car Band_1 ne serait pas la voie visée.
-  - Seuil `Limiter<n>` : la voie est déduite de la sortie n dans la config ; un `--voie` contradictoire est refusé.
-  - Retour arrière d'un lot : générateur coupé et mutes d'abord, puis le reste dans l'ordre inverse. Il s'arrête au premier écart (code 2 : restaurer l'instantané). Il ne rallume jamais le générateur et ne remonte jamais un seuil.
+  - Bosse (gain > 0) sur un PEQOut : l'ordre PEQ/limiteur est relu en direct dans la topologie (la sortie doit y figurer), et l'ordre enregistré (`venu360_phase.yaml`) doit aussi être « PEQ avant limiteur ».
+  - Alias de voie (tout bloc de la sortie : crossover, PEQ, limiteur, délai, gain, mute) sur un crossover multivoie (plusieurs bandes ou bande Sub) : refusé, car la sortie ne serait pas la voie visée.
+  - Seuil `Limiter<n>` : la voie est déduite de la sortie n dans la config (sortie sans voie : refus ; `--voie` contradictoire : refus), et `Output<n>Gain` relu en direct doit égaler `processeur_reglage_sortie` de la config, sinon le plafond serait faux.
+  - Retour arrière d'un lot : générateur coupé et re-mutes d'abord, puis le reste dans l'ordre inverse. Il s'arrête au premier écart ou à une valeur illisible (code 2 : restaurer l'instantané). Il ne rallume jamais le générateur, ne remonte jamais un seuil et **ne démute jamais** une sortie (elle reste mutée, à démuter à la main). Un Ctrl-C en plein lot déclenche aussi le retour arrière.
   - `--pas-libre` lève le pas, seulement si les 6 sorties sont relues mutées (construction de preset).
   - Seuils, fréquences, Q, types : pas de pas maximum (le seuil a son plafond).
 - **Protection** (limiteurs, HPF/LPF et leurs types, polarité, mutes, PeakStop, et aussi gains d'entrée, de zone et de sortie, routage InMixer et MidRouter, niveaux analogiques d'appareil) : refusée sans `--protection-validee`.

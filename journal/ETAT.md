@@ -40,7 +40,16 @@ Claude Code lit ce fichier au début de chaque session et le met à jour à la f
     - `--par-pas` au-delà de 2 pas : `--protection-validee` ;
     - bosse PEQOut : topologie relue en direct (aussi dans `optim_preset`) ;
     - une mesure au banc contradictoire bloque l'enregistrement de la topologie.
-  - **Contre-revue de vérification** : pas faite (limite d'usage de l'agent). À relancer à la prochaine session.
+  - **Contre-revue de vérification (25/11)** : corrections confirmées, 0 P0, 4 P1 et 11 P2/P3. Corrigés (218 tests) :
+    - retour arrière : ne démute jamais une sortie (un mute « Off » d'avant reste « On »), s'arrête sur une valeur illisible, et se déclenche aussi sur Ctrl-C ; un item refusé à la relecture n'est plus « remis » ;
+    - alias : contrôle du crossover d'une bande pour TOUS les blocs de la sortie (limiteur, délai, EQ, gain, mute), bande Sub comprise ;
+    - seuil : `Output<n>Gain` relu en direct = config, sinon refus ; sortie sans voie : refus ; ancien seuil réécrit seulement s'il respecte le plafond ; seuil relu illisible = échec ;
+    - `--par-pas` au-delà de 2 pas : nouveau drapeau `--cumul-valide` (`--protection-validee` ne suffit plus) ;
+    - bosse PEQOut : la sortie doit être dans la topologie, et l'ordre enregistré aussi « PEQ avant » ;
+    - activation Delay/ParametricEQ (Off → On) : sortie mutée ; `Input<n>Gain` : 6 sorties mutées ; `OvershootDb` : seulement à la baisse ;
+    - `banc_electrique` : un banc indéterminé n'efface plus `chaine_banc`.
+    Vérifié en simulation sur la vraie machine (lecture seule) : SUB.limiteur.seuil, MEDIUM.eq.2.gain, HIGH.delai acceptés, KICK.gain refusé (−12,6 dB, écart > pas).
+    **Non corrigé (choix)** : après un changement de niveau de sortie, les 5 autres sorties ne donnent qu'un avertissement (on les règle une par une ; `appliquer-plan` et tout seuil refusent tant qu'elles diffèrent) ; certains refus décidables hors ligne passent encore après la connexion (lecture seule, sans risque).
   - **Point de fond :** l'ordre « PEQ avant limiteur » est INFÉRÉ de la topologie. À confirmer une fois par la boucle REW : bosse sur PEQOut avec un seuil bas.
 - **ÉCART de Claude** (sonde du générateur, script de diagnostic hors outils) : le seuil du Limiter1 a été mis à −20 dB pendant quelques secondes, alors qu'il était à −31,1 dB. C'est le mauvais sens, au-dessus du plafond. Amplis débranchés, sortie générateur à −30 dB ; il a été remis et relu à −31,1 dB.
   Règle tenue désormais : aucune écriture de seuil hors `dbx_hiqnet` / `dbx_reglage`, qui vérifient le plafond.

@@ -65,6 +65,7 @@ class Options:
     hors_carte: bool = False
     par_pas: bool = False
     pas_libre: bool = False
+    cumul_valide: bool = False          # --par-pas au-delà de 2 pas sans remesure (accord de Louis, distinct des protections)
     journal: object = None              # fonction texte -> None
     dossier_instantanes: Path | None = None
     notes: list = field(default_factory=list)
@@ -118,6 +119,19 @@ def _verifier_niveau_sortie(chemin: str, valeur: str, config: str | None) -> str
     return f"niveau de sortie {valeur} = config {config}"
 
 
+def _verifier_niveau_relu(d, n: int, config: str) -> str:
+    """Le plafond n'a de sens que si Output<n>Gain relu EN DIRECT = processeur_reglage_sortie de la config."""
+    voulu = str(charger_config(config).get("processeur_reglage_sortie") or "").replace(" ", "").lower()
+    try:
+        relu = str(d.get(f"\\\\Node\\Settings\\SV\\Output{n}Gain") or "").replace(" ", "").lower()
+    except ValueError:
+        relu = ""
+    if not voulu or nombre(relu) is None or abs(nombre(relu) - nombre(voulu)) > 0.01:
+        raise Refus(f"seuil de la sortie {n} : niveau de sortie relu {relu or 'illisible'} ≠ config "
+                    f"processeur_reglage_sortie {voulu or 'absent'} : le plafond serait faux")
+    return f"niveau sortie {n} relu {relu} = config"
+
+
 def controler(d, chemin: str, valeur: str, o: Options) -> dict:
     """Tous les contrôles, AUCUNE écriture. Renvoie {desc, avant, pas[], notes[], protection}. Lève Refus."""
     from dbx_hiqnet import CHEMINS_INTERDITS, est_protection, regle_carte, valider_valeur
@@ -154,13 +168,35 @@ def controler(d, chemin: str, valeur: str, o: Options) -> dict:
     if m_lim and o.config:                   # le plafond doit être celui de la voie câblée sur CETTE sortie
         n = int(m_lim.group(1))
         nom = next((str(v.get("nom")) for v in charger_config(o.config).get("voies") or [] if int(v.get("sortie", 0)) == n), None)
-        if nom and o.voie and o.voie.upper() != nom.upper():
+        if nom is None:
+            raise Refus(f"Limiter{n} : la sortie {n} n'a pas de voie dans {o.config} : aucun plafond applicable")
+        if o.voie and o.voie.upper() != nom.upper():
             raise Refus(f"Limiter{n} = sortie {n} = voie {nom} dans {o.config}, pas {o.voie} : plafond de la mauvaise voie")
-        o.voie = o.voie or nom
-    if re.search(r"\\PEQOut\d\\SV\\Band_\d+_Gain$", chemin, re.I) and (nombre(valeur) or 0) > 0:
+        o.voie = nom
+        notes.append(_verifier_niveau_relu(d, n, o.config))
+    m_bosse = re.search(r"\\PEQOut(\d)\\SV\\Band_\d+_Gain$", chemin, re.I)
+    if m_bosse and (nombre(valeur) or 0) > 0:
+        import dbx_plan
         ordre = dd.chaine_sortie_machine(d)
-        if ordre.get("chaine_sortie") != "peq_avant_limiteur":
-            raise Refus(f"bosse d'EQ de voie : ordre PEQ/limiteur relu = {ordre.get('chaine_sortie')} ({ordre.get('motif', '')})")
+        if ordre.get("chaine_sortie") != "peq_avant_limiteur" or int(m_bosse.group(1)) not in (ordre.get("sorties") or []):
+            raise Refus(f"bosse d'EQ de voie : ordre PEQ/limiteur relu = {ordre.get('chaine_sortie')} "
+                        f"({ordre.get('motif', '')}), sorties couvertes {ordre.get('sorties')}")
+        if dbx_plan.chaine_sortie() != "peq_avant_limiteur":
+            raise Refus(f"bosse d'EQ de voie : ordre enregistré (venu360_phase.yaml) = {dbx_plan.chaine_sortie()}")
+    if re.search(r"\\Limiter\d\\SV\\OvershootDb$", chemin, re.I) and not o.depasser_plafond:
+        a_ov, v_ov = nombre(str(d.get(chemin) or "")), nombre(valeur)
+        if a_ov is None or v_ov is None or v_ov > a_ov:
+            raise Refus(f"{chemin} : relever l'overshoot peut laisser passer plus que le seuil (plafond) : "
+                        "seulement à la baisse, sauf --depasser-plafond")
+    m_act = re.search(r"\\(DelayOut|PEQOut)(\d)\\SV\\(Delay|ParametricEQ)$|\\PEQ1\\SV\\ParametricEQ$", chemin, re.I)
+    if m_act and str(valeur).strip() == "On" and str(d.get(chemin) or "").strip() != "On":
+        n_act = int(m_act.group(2)) if m_act.group(2) else None   # activer = appliquer d'un coup le délai / l'EQ mémorisés
+        mute = [f"{P}OutputGains\\SV\\Channel_{n_act}_Mute"] if n_act else dd.SORTIES_MUTE
+        if not all(str(d.get(c) or "").strip() == "On" for c in mute):
+            raise Refus(f"{chemin} = On applique d'un coup tout le bloc mémorisé (hors pas maximum) : "
+                        f"seulement sortie{'s' if not n_act else ''} {n_act or '1-6'} relue(s) mutée(s)")
+    if re.search(r"\\\\Node\\Settings\\SV\\Input\dGain$", chemin, re.I) and not _sorties_mutees(d):
+        raise Refus(f"{chemin} : sensibilité d'entrée (saut jusqu'à 14 dB en une écriture) : seulement les 6 sorties relues mutées")
     if dd.est_signal(chemin):
         if not o.signal_valide:
             raise Refus("générateur de signal. Il faut l'accord explicite de Louis (niveau sûr, personne exposé) : --signal-valide")
@@ -193,8 +229,8 @@ def controler(d, chemin: str, valeur: str, o: Options) -> dict:
     if regle and a_av and a_ci and a_av[1] == a_ci[1] == regle[0]:
         fam, pas_max, unite = regle
         ecart = abs(a_ci[0] - a_av[0])
-        if o.par_pas and ecart > 2 * pas_max + 1e-6 and not o.protection_validee:
-            raise Refus(f"--par-pas : écart cumulé {ecart:g} > {2 * pas_max:g} sans remesure : --protection-validee "
+        if o.par_pas and ecart > 2 * pas_max + 1e-6 and not o.cumul_valide:
+            raise Refus(f"--par-pas : écart cumulé {ecart:g} > {2 * pas_max:g} sans remesure : --cumul-valide "
                         "(accord de Louis) ou plusieurs commandes avec mesure entre elles")
         if ecart > pas_max + 1e-6:
             if o.pas_libre:
@@ -246,9 +282,17 @@ def ecrire_controle(d, ip: str, chemin: str, valeur: str, o: Options) -> dict:
             try:
                 verifier_plafond(nombre(str(relu)), o.config, o.voie, "dBFS", o.depasser_plafond)
             except ValueError as e:
-                remis, _, _ = dd.ecrire_et_relire(d, chemin, str(c["avant"]), c["desc"])
-                _journal(o, f"ECART PLAFOND {ip} {chemin} : relu {relu} : {e} ; ancien seuil réécrit, relu {remis}")
-                raise Echec(f"seuil retenu par la machine ({relu}) au-dessus du plafond : {e}. Ancien seuil réécrit (relu {remis})")
+                try:                                       # l'ancien seuil n'est réécrit que s'il respecte le plafond
+                    verifier_plafond(nombre(str(c["avant"])), o.config, o.voie, "dBFS", o.depasser_plafond)
+                    remis, _, _ = dd.ecrire_et_relire(d, chemin, str(c["avant"]), c["desc"])
+                    etat = f"ancien seuil réécrit, relu {remis}"
+                except ValueError:
+                    etat = f"ancien seuil {c['avant']} AUSSI au-dessus du plafond : rien réécrit, à BAISSER à la main"
+                _journal(o, f"ECART PLAFOND {ip} {chemin} : relu {relu} : {e} ; {etat}")
+                raise Echec(f"seuil retenu par la machine ({relu}) au-dessus du plafond : {e}. {etat}")
+        elif seuil:
+            _journal(o, f"ECART PLAFOND {ip} {chemin} : seuil relu illisible ({relu!r}) : plafond invérifiable")
+            raise Echec(f"{chemin} : seuil relu illisible ({relu!r}) : plafond invérifiable, relire avant tout")
         if not ok:
             raise Echec(f"{chemin} : pas {i}/{len(c['pas'])} = {v}, relu {relu} ({err or 'écart'}). "
                         "Ne pas continuer avant d'avoir compris l'écart (pas, unité, plage, verrouillage)")
@@ -319,15 +363,17 @@ def resoudre(alias: str, config: str | None) -> tuple[str, str | None]:
 def verifier_cible(d, chemin: str, alias: str) -> None:
     """Un alias de voie suppose une sortie = un crossover d'une seule bande (preset « 6 × Mono Fullrange ») :
     sur un crossover multivoie, Band_1 ne serait pas la voie visée. Refus sinon (lecture seule)."""
-    m = re.match(r"\\\\Preset\\CrossoverIIR(\d)\\SV\\", chemin)
+    m = re.match(r"\\\\Preset\\(?:CrossoverIIR|Limiter|DelayOut|PEQOut)(\d)\\SV\\|\\\\Preset\\OutputGains\\SV\\Channel_(\d)_",
+                 chemin)
     if not m or alias.startswith("\\\\"):
-        return
+        return                               # ENTREE / SYSTEME : pas de voie de sortie
+    n = m.group(1) or m.group(2)
     try:
-        cles = d.ls(f"\\\\Preset\\CrossoverIIR{m.group(1)}\\SV")
+        cles = d.ls(f"\\\\Preset\\CrossoverIIR{n}\\SV")
     except ValueError as e:
-        raise Refus(f"{alias} : CrossoverIIR{m.group(1)} illisible ({e})") from None
-    if "Band_1_HPFrequency" not in cles or any(re.match(r"Band_[2-9]_", k) for k in cles):
-        raise Refus(f"{alias} : CrossoverIIR{m.group(1)} n'est pas un crossover d'une bande (preset multivoie) — "
+        raise Refus(f"{alias} : CrossoverIIR{n} illisible ({e})") from None
+    if "Band_1_HPFrequency" not in cles or any(re.match(r"(Band_([2-9]|\d\d)_|Sub_)", k) for k in cles):
+        raise Refus(f"{alias} : CrossoverIIR{n} n'est pas un crossover d'une bande (preset multivoie) — "
                     "l'alias viserait la mauvaise voie : chemin complet avec `set`")
 
 
@@ -380,15 +426,18 @@ def lot(d, ip: str, items: list[tuple[str, str]], o: Options, avant_ecriture=Non
         try:
             ecrire_controle(d, ip, p["chemin"], p["demande"], oo)
             r["ecrits"].append(p)
-        except Exception as e:                            # Refus, Echec, connexion perdue…
+        except (Exception, KeyboardInterrupt) as e:       # Refus, Echec, connexion perdue, Ctrl-C…
             r["echec"] = f"{p['alias']} = {p['demande']} : {type(e).__name__ if not isinstance(e, (Refus, Echec)) else ''} {e}".strip()
-            r["ecrits"].append(p)                          # partiellement écrit : à remettre aussi
+            if not isinstance(e, Refus):                   # un Refus à la relecture en direct : rien n'a été écrit
+                r["ecrits"].append(p)                      # partiellement écrit : à remettre aussi
             break
     if r["echec"]:
         _journal(o, f"LOT {ip} ÉCHEC : {r['echec']} — retour arrière de {len(r['ecrits'])} réglage(s)")
-        # générateur et mutes d'abord (couper le signal, rendre le silence), puis le reste dans l'ordre inverse ;
+        # générateur et re-mutes d'abord (couper le signal, rendre le silence), puis le reste dans l'ordre inverse ;
+        # un mute dont l'avant était « Off » n'est JAMAIS démuté par le retour arrière (_remettre le laisse On) ;
         # arrêt au PREMIER retour non conforme : on ne continue pas à écrire sur un état inconnu
-        prio = [p for p in r["ecrits"] if dd.est_signal(p["chemin"]) or p["chemin"] in dd.SORTIES_MUTE]
+        prio = [p for p in r["ecrits"] if dd.est_signal(p["chemin"])
+                or (p["chemin"] in dd.SORTIES_MUTE and str(p["avant"]).strip() == "On")]
         reste = [p for p in reversed(r["ecrits"]) if p not in prio]
         for p in sorted(prio, key=lambda p: 0 if p["chemin"].endswith("\\Signal Generator") else 1) + reste:
             try:
@@ -414,9 +463,14 @@ def _remettre(d, ip: str, p: dict, o: Options) -> dict:
         return {"chemin": ch, "remis": False, "erreur": "valeur d'avant inconnue : rien écrit"}
     if re.search(r"\\Limiter\d*\\SV\\Threshold$", ch, re.I):
         actuel = nombre(str(d.get(ch) or ""))
-        if actuel is None or nombre(str(avant)) is None or nombre(str(avant)) > actuel:
-            _journal(o, f"LOT {ip} retour arrière : {ch} laissé à {actuel} (plus bas ou illisible : plus protecteur que {avant})")
+        if actuel is None:
+            return {"chemin": ch, "remis": False, "erreur": "seuil actuel illisible : état inconnu"}
+        if nombre(str(avant)) is None or nombre(str(avant)) > actuel:
+            _journal(o, f"LOT {ip} retour arrière : {ch} laissé à {actuel} (plus bas : plus protecteur que {avant})")
             return {"chemin": ch, "remis": False, "motif": "seuil laissé plus bas (plus protecteur)"}
+    if ch in dd.SORTIES_MUTE and str(avant).strip() == "Off":
+        _journal(o, f"LOT {ip} retour arrière : {ch} laissé muté (était Off) : démute à la main, après contrôle")
+        return {"chemin": ch, "remis": False, "motif": "sortie laissée mutée (plus sûr)"}
     if dd.est_signal(ch):
         if ch.endswith("\\Signal Generator") and str(avant).strip() != "Off":
             relu, ok, _ = dd.ecrire_et_relire(d, ch, "Off", dd.decrire_param(d, ch))
@@ -434,6 +488,8 @@ def _remettre(d, ip: str, p: dict, o: Options) -> dict:
     actuel = d.get(ch)
     vals = [str(avant)]
     regle, a_ac, a_av = regle_pas(ch), dd.analyser(actuel), dd.analyser(avant)
+    if regle and not (a_ac and a_ac[1] == regle[0]):
+        return {"chemin": ch, "remis": False, "erreur": f"valeur actuelle illisible ({actuel!r}) : pas maximum invérifiable"}
     if regle and a_ac and a_av and a_ac[1] == a_av[1] == regle[0]:
         vals = [_formater(v, regle[0], regle[2], str(avant)) for v in decouper(a_ac[0], a_av[0], regle[1])[:-1]] + [str(avant)]
     relu, ok = None, False

@@ -33,8 +33,8 @@ dbx_hiqnet.py regler <ip> ENTREE.eq.3.gain -2dB --config data/configs/ma-sono-ck
 ```
 
 ## Règles appliquées par l'outil, par classe de paramètre
-- **Réglage** (EQ, délai, AFS, GEQ, AutoEQ, compresseur…) : validation machine (bornes, choix exacts, unité), puis relecture. Pas maximum : gains et EQ ±3 dB, délai ±0,5 ms, phase ±45° (`--par-pas` pour découper ; `--pas-libre` seulement 6 sorties relues mutées).
-- **Protection** (limiteur, filtres et leurs types, polarité, mutes, PeakStop, gains d'entrée, de zone et de sortie, routage) : `--protection-validee` après accord explicite de Louis. Seuil : plafond calc_systeme (config + voie), consigne et valeur relue. Jamais au-dessus.
+- **Réglage** (EQ, délai, AFS, GEQ, AutoEQ, compresseur…) : validation machine (bornes, choix exacts, unité), puis relecture. Pas maximum : gains et EQ ±3 dB, délai ±0,5 ms, phase ±45° (`--par-pas` pour découper, au-delà de 2 pas `--cumul-valide` ; `--pas-libre` seulement 6 sorties relues mutées). Activer un délai ou une EQ (Off → On) : sortie relue mutée.
+- **Protection** (limiteur, filtres et leurs types, polarité, mutes, PeakStop, gains d'entrée, de zone et de sortie, routage) : `--protection-validee` après accord explicite de Louis. Seuil : plafond calc_systeme (config + voie), consigne et valeur relue, et niveau de sortie `Output<n>Gain` relu égal à la config. Jamais au-dessus. `OvershootDb` : seulement à la baisse.
 - **Système** (`\\Node\Settings`) : niveaux analogiques d'entrée et de sortie seulement. Un niveau de sortie n'est écrit que si la config porte déjà la nouvelle valeur, car il cale tous les plafonds. Le reste exige `--hors-carte`. Mot de passe, reboot, commande de config : interdits.
 - **Signal** (générateur, `SignalGeneratorControl`) : `--signal-valide` après confirmation de Louis (niveau sûr, personne exposé), amplitude ≤ −30 dB.
 - **Commande** ponctuelle (Flatten, ClearAll, ClearLive) : à la main seulement.
