@@ -18,6 +18,8 @@ Réponds en français, direct, technique, sans approximation.
 
 Python : utiliser `.venv\Scripts\python.exe` quand `.venv` existe (créé par `installer.ps1`). Tests : `.venv\Scripts\python.exe -m pytest`.
 
+Règles de travail (publication, Drive, périmètre, pièges) : `docs/regles-de-travail.md`.
+
 ## Règles absolues
 - Aucun chiffre de spec hors `data/materiel.yaml` (bibliothèque) ; donnée manquante = question à Louis ou mesure.
 - Calculs électriques et délais : TOUJOURS via les scripts (`calc_systeme.py`, `plan_3d.py`), jamais de tête.

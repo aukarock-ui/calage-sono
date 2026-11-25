@@ -3,6 +3,14 @@
 Règle : toute valeur validée sur le terrain est notée ici avec la date et la mesure qui la justifie.
 Claude Code lit ce fichier au début de chaque session et le met à jour à la fin.
 
+## 2026-11-25 : piste « calage au VENU360 seul » (sans REW), à tester
+- Question de Louis : peut-on caler avec le VENU360 seul ? D'après le manuel 5058681-C, il n'a pas d'alignement automatique. Il propose une méthode manuelle (p. 51) : sinus à la coupure, polarité inversée, recherche de la plus forte annulation. Il a aussi Level Assist, AutoEQ (10 bandes), une prise RTA en façade (48 V) et un RTA 31 bandes.
+- Idée : automatiser l'annulation (et l'équilibre des niveaux, l'EQ) en lisant `\\Preset\RTA\SV\AllMeters` (31 valeurs) avec le micro dbx RTA-M de Louis sur la prise RTA. Point de départ : le délai géométrique de `plan_3d`. Limites : amplitude seulement, juste à la coupure, sans réponse impulsionnelle ni cohérence.
+- **Point décisif à tester** : `AllMeters` est-il vivant en réseau ? Le test est prêt (`tools/test_rta_venu360.py <ip> --appliquer --signal-valide`), il n'a pas encore tourné : générateur à −30 dB en bruit rose, routé vers le RTA SEULEMENT (`RTARouter = Signal Generator`, aucune injection vers les sorties), sorties mutées, tout remis. Le 25/11, le VENU360 était injoignable (PC sur un autre réseau, 10.242.x).
+- Level Assist « Auto Trim » doit rester sur **Off** : ses corrections sont invisibles et non modifiables (manuel), donc incompatibles avec nos plans et nos plafonds.
+- Louis a un micro dbx RTA-M (non branché).
+- Les règles de travail de la mémoire privée de Claude sont recopiées dans `docs/regles-de-travail.md`, pour qu'une autre IA ou un autre compte puisse reprendre.
+
 ## 2026-11-24 (suite 7) : pilotage complet du VENU360 (régler n'importe quel paramètre), testé en vrai
 - Demande de Louis : « que tu sois capable de régler n'importe quel paramètre du processeur, teste, améliore… ».
   Plan validé (plan mode). Amplis toujours débranchés (accord du 24/11).
