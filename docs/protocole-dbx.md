@@ -101,6 +101,10 @@ Points importants tirés du code :
   (SignalGeneratorOff/On/MuteAll) ; `MidRouter<n>\SV\SignalGeneratorControl` existe aussi. Constaté : sinus −30 dB
   → Meters123 / MetersABC à −33,0 dB.
 - `RTARouter\SV\RouteSelect` : choisir « A » rend le paramètre illisible (`get` → error) ; « RTA Mic » le rétablit.
+  « Signal Generator » est accepté et relu (25/11/2026).
+- `RTA\SV\AllMeters` (31 bandes, chaîne de texte) : figé à « −80.0 » par la console, même avec le générateur rose à
+  −30 dB routé vers le RTA (abonnement et `get` répétés, 25/11/2026). Comme les mètres de sortie, il n'est pas
+  exploitable par le protocole texte.
   Option refusée par la machine dans cette topologie (autotest et lot du 24/11/2026).
 - Niveau de sortie analogique `\\Node\Settings\SV\Output<n>Gain` (+4, +8, +12, +14, +17, +20, +22 dBu ; relu +22) :
   écrit seulement si la config porte déjà la valeur (`dbx_reglage`), et relu par `appliquer-plan` avant d'écrire.

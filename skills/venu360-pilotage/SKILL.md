@@ -42,6 +42,7 @@ dbx_hiqnet.py regler <ip> ENTREE.eq.3.gain -2dB --config data/configs/ma-sono-ck
 
 ## Ce que la machine dit d'elle-même (firmware 2.0.5.0, 24/11/2026)
 - **Chaîne de sortie** : CrossoverIIR → PEQOut → ZoneGains → OutputGains (mute) → Limiter → DelayOut, sur le même DSP. Une bosse de PEQ de voie et un gain de voie passent donc par le limiteur. Le mute est en amont du limiteur.
+- **RTA 31 bandes** (`RTA\AllMeters`) : FIGÉ à −80 dB par la console, même avec le générateur routé dessus (test du 25/11/2026, `tools/test_rta_venu360.py`). Pas de calage au micro par le VENU360 seul : micro sur le PC (Open Sound Meter ou REW). Non testé : écran RTA ouvert en façade, protocole binaire de l'appli Windows.
 - **Mètres** : seuls Meters123 et MetersABC (entrées) bougent par la console. Les mètres de sortie, ceux du milieu et les capteurs du limiteur restent figés. On ne vérifie donc pas une sortie au mètre : c'est la boucle REW.
 - **Générateur** : il entre par `InRouter<n>\SV\SignalGeneratorControl` (SignalGeneratorOn) et se voit sur Meters123 et MetersABC (sinus −30 dB crête → −33,0 dB efficace). Il coupe en premier, et se relit « Off », à la fin de toute utilisation.
 - **RTARouter `A`** : la machine rend le paramètre illisible. On revient à « RTA Mic ».
